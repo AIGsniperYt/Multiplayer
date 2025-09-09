@@ -154,7 +154,14 @@ button:hover {
     margin-bottom: 20px;
     color: #4a5568;
 }
-
+.copyright-footer {
+    text-align: center;
+    padding: 15px;
+    color: #718096;
+    font-size: 12px;
+    border-top: 1px solid #e2e8f0;
+    background: #f7fafc;
+}
 .username-input-group {
     display: flex;
     gap: 10px;
@@ -180,4 +187,5 @@ button:hover {
     .username-input-group {
         flex-direction: column;
     }
+
 }
