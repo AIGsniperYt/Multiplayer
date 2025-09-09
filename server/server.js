@@ -6,15 +6,23 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
+
+// Configure CORS properly
 const io = socketIo(server, {
   cors: {
-    origin: "*", // Allow all origins for testing
-    methods: ["GET", "POST"]
+    origin: ["https://aigsniperyt.github.io", "http://localhost:3000"],
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-app.use(cors());
-// Serve static files from the root directory
+// Enhanced CORS configuration
+app.use(cors({
+  origin: ["https://aigsniperyt.github.io", "http://localhost:3000"],
+  credentials: true
+}));
+
+// Serve static files from the root directory (for testing)
 app.use(express.static(path.join(__dirname, '..')));
 
 // Store connected users
@@ -71,5 +79,5 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Open http://localhost:${PORT} in your browser to test the chat`);
+  console.log(`CORS enabled for GitHub Pages and localhost`);
 });
