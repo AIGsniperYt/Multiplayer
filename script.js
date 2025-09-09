@@ -13,8 +13,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initially hide the chat interface
     chatContainer.style.display = 'none';
     
-    // Connect to server - for local testing
-    const socket = io('https://multiplayer-6vlc.onrender.com/');
+    // Connect to server - use your Render URL
+    const socket = io('https://multiplayer-6vlc.onrender.com', {
+        transports: ['websocket', 'polling'] // Try both connection methods
+    });
     
     let username = '';
     let isTyping = false;
@@ -22,6 +24,22 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Show username prompt immediately
     usernameInput.focus();
+    
+    // Connection status monitoring
+    socket.on('connect', () => {
+        console.log('Connected to server successfully');
+        addSystemMessage('Connected to chat server');
+    });
+    
+    socket.on('disconnect', (reason) => {
+        console.log('Disconnected from server:', reason);
+        addSystemMessage('Disconnected from server');
+    });
+    
+    socket.on('connect_error', (error) => {
+        console.error('Connection error:', error);
+        addSystemMessage('Connection error. Please refresh the page.');
+    });
     
     // Join chat event
     joinButton.addEventListener('click', joinChat);
@@ -34,12 +52,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (username) {
             socket.emit('user_joined', username);
             usernameSetup.style.display = 'none';
-            chatContainer.style.display = 'flex'; // Show the chat interface
+            chatContainer.style.display = 'flex';
             messageInput.disabled = false;
             sendButton.disabled = false;
             messageInput.focus();
             
-            // Add welcome message
             addSystemMessage(`Welcome to the chat, ${username}!`);
         } else {
             alert('Please enter a username to join the chat');
@@ -77,14 +94,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Socket events
-    socket.on('connect', () => {
-        console.log('Connected to server');
-    });
-    
-    socket.on('disconnect', () => {
-        addSystemMessage('Disconnected from server');
-    });
-    
     socket.on('user_joined', (joinedUsername) => {
         if (joinedUsername !== username) {
             addSystemMessage(`${joinedUsername} joined the chat`);
@@ -135,5 +144,4 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-
 });
