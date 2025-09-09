@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
     chatContainer.style.display = 'none';
     
     // Connect to server - for local testing
-    const socket = io('http://localhost:3001');
+    const socket = io('https://multiplayer-6vlc.onrender.com/');
     
     let username = '';
     let isTyping = false;
@@ -135,4 +135,5 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+
 });
