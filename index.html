@@ -32,10 +32,19 @@
                 </div>
             </div>
         </div>
+        <div id="mod-tools" style="display: none; padding: 10px; background: #f0f0f0; border-top: 1px solid #ccc;">
+            <h3>Moderator Tools</h3>
+            <div id="user-list"></div>
+            <div>
+                <input type="text" id="kick-user" placeholder="Username to kick">
+                <button id="kick-btn">Kick User</button>
+            </div>
+        </div>
     </div>
 
     <!-- Use Socket.IO CDN since we're not serving it from the server -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js"></script>
 </body>
+
 </html>
