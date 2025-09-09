@@ -13,8 +13,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initially hide the chat interface
     chatContainer.style.display = 'none';
     
-    // Connect to server - use Render URL in production
-    const socket = io('https://your-render-app.onrender.com');
+    // Connect to server - for local testing
+    const socket = io('http://localhost:3001');
     
     let username = '';
     let isTyping = false;

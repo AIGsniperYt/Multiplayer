@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Multiplayer Chat</h1>
+            <div id="users-online">0 users online</div>
+        </header>
+        
+        <div class="username-setup" id="username-setup">
+            <h2>Enter Your Username to Join the Chat</h2>
+            <div class="username-input-group">
+                <input type="text" id="username-input" placeholder="Enter your username" maxlength="20">
+                <button id="join-button">Join Chat</button>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div id="messages" class="messages"></div>
+            
+            <div class="input-area">
+                <div id="typing-indicator"></div>
+                <div class="input-group">
+                    <input type="text" id="message-input" placeholder="Type your message..." maxlength="200" disabled>
+                    <button id="send-button" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Use Socket.IO CDN since we're not serving it from the server -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
