@@ -9,18 +9,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const typingIndicator = document.getElementById('typing-indicator');
     const usersOnline = document.getElementById('users-online');
     const chatContainer = document.querySelector('.chat-container');
+    const modTools = document.getElementById('mod-tools');
     
-    // Initially hide the chat interface
+    // Initially hide the chat interface and mod tools
     chatContainer.style.display = 'none';
+    if (modTools) modTools.style.display = 'none';
     
     // Connect to server - use your Render URL
     const socket = io('https://multiplayer-6vlc.onrender.com', {
-        transports: ['websocket', 'polling'] // Try both connection methods
+        transports: ['websocket', 'polling']
     });
     
     let username = '';
     let isTyping = false;
     let typingTimer;
+    let isModerator = false;
+    let messageMap = new Map(); // Store messages for moderation
     
     // Show username prompt immediately
     usernameInput.focus();
@@ -58,10 +62,27 @@ document.addEventListener('DOMContentLoaded', function() {
             messageInput.focus();
             
             addSystemMessage(`Welcome to the chat, ${username}!`);
+            
+            // Add mod promotion input
+            const modPrompt = document.createElement('div');
+            modPrompt.innerHTML = `
+                <div style="margin: 10px 0; text-align: center;">
+                    <input type="password" id="mod-password" placeholder="Mod password (optional)" style="padding: 8px; margin-right: 5px;">
+                    <button id="become-mod">Become Mod</button>
+                </div>
+            `;
+            usernameSetup.parentNode.insertBefore(modPrompt, usernameSetup.nextSibling);
+            
+            document.getElementById('become-mod').addEventListener('click', becomeModerator);
         } else {
             alert('Please enter a username to join the chat');
             usernameInput.focus();
         }
+    }
+    
+    function becomeModerator() {
+        const password = document.getElementById('mod-password').value;
+        socket.emit('become_mod', password);
     }
     
     // Send message event
@@ -105,7 +126,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     socket.on('receive_message', (data) => {
-        addMessage(data.username, data.message, data.timestamp, data.username !== username);
+        const messageElement = addMessage(data.username, data.message, data.timestamp, data.username !== username);
+        messageMap.set(data.id, { element: messageElement, data: data });
     });
     
     socket.on('user_typing', (data) => {
@@ -118,6 +140,39 @@ document.addEventListener('DOMContentLoaded', function() {
     
     socket.on('users_list', (users) => {
         usersOnline.textContent = `${users.length} users online`;
+        
+        // Show mod tools if user is a moderator
+        if (isModerator && modTools) {
+            modTools.style.display = 'block';
+            updateUserListForModeration(users);
+        }
+    });
+    
+    socket.on('mod_status', (data) => {
+        isModerator = data.isMod;
+        if (isModerator) {
+            addSystemMessage('You are now a moderator! Mod tools enabled.');
+            if (modTools) modTools.style.display = 'block';
+            // Request updated user list
+            socket.emit('get_users');
+        }
+    });
+    
+    socket.on('message_deleted', (data) => {
+        const messageInfo = messageMap.get(data.messageId);
+        if (messageInfo) {
+            messageInfo.element.style.display = 'none';
+            messageMap.delete(data.messageId);
+        }
+    });
+    
+    socket.on('kicked', (data) => {
+        alert(`You have been kicked from the chat. Reason: ${data.reason}`);
+        window.location.reload();
+    });
+    
+    socket.on('system_message', (message) => {
+        addSystemMessage(message);
     });
     
     // Helper functions
@@ -127,13 +182,33 @@ document.addEventListener('DOMContentLoaded', function() {
         messageEl.classList.add(isOther ? 'other' : 'own');
         
         messageEl.innerHTML = `
-            <div class="username">${username}</div>
+            <div class="username">${username} ${isModerator ? `<button class="kick-btn" data-username="${username}">Kick</button>` : ''}</div>
             <div class="text">${message}</div>
             <div class="timestamp">${timestamp}</div>
         `;
         
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        
+        // Add kick functionality for moderators
+        if (isModerator) {
+            const kickBtn = messageEl.querySelector('.kick-btn');
+            if (kickBtn) {
+                kickBtn.addEventListener('click', () => {
+                    const usernameToKick = kickBtn.getAttribute('data-username');
+                    const reason = prompt(`Reason for kicking ${usernameToKick}:`);
+                    if (reason) {
+                        socket.emit('mod_command', {
+                            command: 'kick',
+                            target: usernameToKick,
+                            reason: reason
+                        });
+                    }
+                });
+            }
+        }
+        
+        return messageEl;
     }
     
     function addSystemMessage(message) {
@@ -143,5 +218,38 @@ document.addEventListener('DOMContentLoaded', function() {
         
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    function updateUserListForModeration(users) {
+        if (!modTools) return;
+        
+        const userList = modTools.querySelector('#user-list');
+        if (userList) {
+            userList.innerHTML = '';
+            users.forEach(user => {
+                const userItem = document.createElement('div');
+                userItem.innerHTML = `
+                    ${user.username} ${user.isMod ? '(Mod)' : ''}
+                    ${!user.isMod ? `<button class="kick-btn" data-username="${user.username}">Kick</button>` : ''}
+                `;
+                userList.appendChild(userItem);
+                
+                // Add kick functionality
+                const kickBtn = userItem.querySelector('.kick-btn');
+                if (kickBtn) {
+                    kickBtn.addEventListener('click', () => {
+                        const usernameToKick = kickBtn.getAttribute('data-username');
+                        const reason = prompt(`Reason for kicking ${usernameToKick}:`);
+                        if (reason) {
+                            socket.emit('mod_command', {
+                                command: 'kick',
+                                target: usernameToKick,
+                                reason: reason
+                            });
+                        }
+                    });
+                }
+            });
+        }
     }
 });
