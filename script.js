@@ -1,10 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const SERVER_URL = 'https://multiplayer-6vlc.onrender.com'; // HTTPS for WSS
+    const SERVER_URL = 'https://multiplayer-6vlc.onrender.com';
     let username = '';
     let clientId = null;
-    let usingLongPolling = false;
-    let pollingInterval = null;
     let lastUpdateTime = Date.now();
+    let pollingInterval = null;
 
     const messagesContainer = document.getElementById('messages');
     const messageInput = document.getElementById('message-input');
@@ -15,53 +14,51 @@ document.addEventListener('DOMContentLoaded', function() {
     const chatContainer = document.querySelector('.chat-container');
 
     chatContainer.style.display = 'none';
+    addSystemMessage("Using long polling only (school-friendly)");
 
-    initializeConnection();
+    joinButton.addEventListener('click', joinChat);
+    usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
 
-    function initializeConnection() {
-        console.log('Trying WSS connection...');
-        try {
-            const socket = io(SERVER_URL, {
-                transports: ['websocket'],
-                timeout: 5000
-            });
+    function joinChat() {
+        username = usernameInput.value.trim();
+        if (!username) return alert('Enter a username');
 
-            socket.on('connect', () => {
-                console.log('✅ Connected via WSS');
-                setupSocketEvents(socket);
-            });
-
-            socket.on('connect_error', (err) => {
-                console.warn('WSS failed, falling back to long polling:', err);
-                socket.disconnect();
-                setupLongPolling();
-            });
-
-            // Timeout fallback
-            setTimeout(() => {
-                if (!socket.connected) {
-                    console.warn('WSS timeout, switching to long polling');
-                    socket.disconnect();
-                    setupLongPolling();
-                }
-            }, 5000);
-
-        } catch (err) {
-            console.warn('WSS not available, using long polling:', err);
-            setupLongPolling();
-        }
+        fetch(`${SERVER_URL}/api/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                clientId = data.clientId;
+                usernameSetup.style.display = 'none';
+                chatContainer.style.display = 'flex';
+                messageInput.disabled = false; 
+                sendButton.disabled = false; 
+                messageInput.focus();
+                addSystemMessage(`Welcome, ${username}!`);
+                if (data.messages) data.messages.forEach(m => addMessage(m.username, m.message, m.timestamp));
+                startPolling();
+            } else alert('Failed to join: ' + data.error);
+        }).catch(err => console.error('Join error:', err));
     }
 
-    function setupLongPolling() {
-        usingLongPolling = true;
-        addSystemMessage('Using long polling connection (school-friendly)');
+    function sendMessage() {
+        const msg = messageInput.value.trim();
+        if (!msg) return;
+        fetch(`${SERVER_URL}/api/send-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, message: msg })
+        }).then(() => messageInput.value = '');
     }
 
     function startPolling() {
         if (pollingInterval) clearInterval(pollingInterval);
-        pollingInterval = setInterval(() => {
-            if (clientId) fetchUpdates();
-        }, 3000);
+        pollingInterval = setInterval(fetchUpdates, 1000);
     }
 
     function fetchUpdates() {
@@ -80,24 +77,6 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(err => console.error('Polling error:', err));
     }
 
-    function setupSocketEvents(socket) {
-        window.chatSocket = socket;
-
-        socket.on('disconnect', (reason) => {
-            console.warn('Disconnected from WSS:', reason);
-            addSystemMessage('Disconnected from server');
-        });
-
-        socket.on('connect_error', (err) => {
-            console.warn('WSS connection error:', err);
-            addSystemMessage('Connection error. Refresh page.');
-        });
-
-        socket.onAny((event, data) => {
-            handleServerEvent(event, data);
-        });
-    }
-
     function handleServerEvent(event, data) {
         switch (event) {
             case 'user_joined': addSystemMessage(`${data} joined`); break;
@@ -109,59 +88,6 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'mod_status':
                 if (data.isMod) addSystemMessage('You are now a moderator!');
                 break;
-        }
-    }
-
-    joinButton.addEventListener('click', joinChat);
-    usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
-
-    function joinChat() {
-        username = usernameInput.value.trim();
-        if (!username) return alert('Enter a username');
-
-        if (usingLongPolling) {
-            fetch(`${SERVER_URL}/api/join`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    clientId = data.clientId;
-                    usernameSetup.style.display = 'none';
-                    chatContainer.style.display = 'flex';
-                    messageInput.disabled = false; sendButton.disabled = false; messageInput.focus();
-                    addSystemMessage(`Welcome, ${username}!`);
-                    if (data.messages) data.messages.forEach(m => addMessage(m.username, m.message, m.timestamp));
-                    startPolling();
-                } else alert('Failed to join: ' + data.error);
-            }).catch(err => console.error('Join error:', err));
-        } else {
-            window.chatSocket.emit('user_joined', username);
-            usernameSetup.style.display = 'none';
-            chatContainer.style.display = 'flex';
-            messageInput.disabled = false; sendButton.disabled = false; messageInput.focus();
-            addSystemMessage(`Welcome, ${username}!`);
-        }
-    }
-
-    sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
-
-    function sendMessage() {
-        const msg = messageInput.value.trim();
-        if (!msg) return;
-
-        if (usingLongPolling) {
-            fetch(`${SERVER_URL}/api/send-message`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, message: msg })
-            }).then(res => res.json()).then(() => messageInput.value = '');
-        } else {
-            window.chatSocket.emit('send_message', { message: msg });
-            messageInput.value = '';
         }
     }
 
