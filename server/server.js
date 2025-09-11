@@ -21,7 +21,8 @@ app.post('/api/join', (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
-  const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const clientId =
+`lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   users.set(clientId, { username, isMod: false });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
@@ -32,17 +33,20 @@ app.post('/api/join', (req, res) => {
     success: true,
     clientId,
     messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({ username: u.username, isMod: u.isMod }))
+    users: Array.from(users.values()).map(u => ({ username:
+u.username, isMod: u.isMod }))
   });
 });
 
 app.post('/api/send-message', (req, res) => {
   const { clientId, message } = req.body;
-  if (!clientId || !message) return res.status(400).json({ error: 'Missing fields' });
+  if (!clientId || !message) return res.status(400).json({ error:
+'Missing fields' });
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const msgData = { id: Date.now(), username: user.username, message, timestamp: new Date().toLocaleTimeString() };
+  const msgData = { id: Date.now(), username: user.username, message,
+timestamp: new Date().toLocaleTimeString() };
   messages.push(msgData);
   if (messages.length > 100) messages.shift();
   broadcastToAll('receive_message', msgData);
@@ -51,7 +55,8 @@ app.post('/api/send-message', (req, res) => {
 
 app.post('/api/get-updates', (req, res) => {
   const { clientId } = req.body;
-  if (!clientId || !users.has(clientId)) return res.status(404).json({ error: 'User not found' });
+  if (!clientId || !users.has(clientId)) return res.status(404).json({
+error: 'User not found' });
 
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
   setTimeout(() => {
@@ -91,22 +96,25 @@ function broadcastToAll(event, data) {
 function broadcastToClient(clientId, event, data) {
   const client = longPollingClients.get(clientId);
   if (client && client.res && !client.res.finished) {
-    client.res.json({ events: [{ event, data, timestamp: Date.now() }], timestamp: Date.now() });
+    client.res.json({ events: [{ event, data, timestamp: Date.now()
+}], timestamp: Date.now() });
     longPollingClients.delete(clientId);
   }
 }
 
 function broadcastUsersList() {
-  const list = Array.from(users.values()).map(u => ({ username: u.username, isMod: u.isMod }));
+  const list = Array.from(users.values()).map(u => ({ username:
+u.username, isMod: u.isMod }));
   broadcastToAll('users_list', list);
 }
 
-// === Cleanup ===
+// === Cleanup (more forgiving) ===
 setInterval(() => {
   const now = Date.now();
   longPollingClients.forEach((client, clientId) => {
-    if (now - client.lastCheck > 30000) {
-      if (client.res && !client.res.finished) client.res.json({ events: [], timestamp: now });
+    if (now - client.lastCheck > 90000) { // 90s grace
+      if (client.res && !client.res.finished) client.res.json({
+events: [], timestamp: now });
       longPollingClients.delete(clientId);
       const user = users.get(clientId);
       if (user) {
@@ -118,4 +126,5 @@ setInterval(() => {
   });
 }, 60000);
 
-http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+http.createServer(app).listen(PORT, () => console.log(`Server running
+on ${PORT} (long polling only)`));
