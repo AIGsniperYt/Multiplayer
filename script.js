@@ -3,7 +3,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let username = '';
     let clientId = null;
     let lastUpdateTime = Date.now();
-    let pollingInterval = null;
 
     const messagesContainer = document.getElementById('messages');
     const messageInput = document.getElementById('message-input');
@@ -17,9 +16,11 @@ document.addEventListener('DOMContentLoaded', function() {
     addSystemMessage("Using long polling only (school-friendly)");
 
     joinButton.addEventListener('click', joinChat);
-    usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
+    usernameInput.addEventListener('keypress', e => { if (e.key ===
+'Enter') joinChat(); });
     sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+    messageInput.addEventListener('keypress', e => { if (e.key ===
+'Enter') sendMessage(); });
 
     function joinChat() {
         username = usernameInput.value.trim();
@@ -36,11 +37,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 clientId = data.clientId;
                 usernameSetup.style.display = 'none';
                 chatContainer.style.display = 'flex';
-                messageInput.disabled = false; 
-                sendButton.disabled = false; 
+                messageInput.disabled = false;
+                sendButton.disabled = false;
                 messageInput.focus();
                 addSystemMessage(`Welcome, ${username}!`);
-                if (data.messages) data.messages.forEach(m => addMessage(m.username, m.message, m.timestamp));
+                if (data.messages) data.messages.forEach(m =>
+addMessage(m.username, m.message, m.timestamp));
                 startPolling();
             } else alert('Failed to join: ' + data.error);
         }).catch(err => console.error('Join error:', err));
@@ -56,9 +58,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }).then(() => messageInput.value = '');
     }
 
+    // === Proper long polling (no setInterval) ===
     function startPolling() {
-        if (pollingInterval) clearInterval(pollingInterval);
-        pollingInterval = setInterval(fetchUpdates, 1000);
+        fetchUpdates();
     }
 
     function fetchUpdates() {
@@ -73,17 +75,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 data.events.forEach(e => handleServerEvent(e.event, e.data));
             }
             lastUpdateTime = data.timestamp || Date.now();
+            fetchUpdates(); // immediately open next poll
         })
-        .catch(err => console.error('Polling error:', err));
+        .catch(err => {
+            console.error('Polling error:', err);
+            setTimeout(fetchUpdates, 2000); // retry after 2s on error
+        });
     }
 
     function handleServerEvent(event, data) {
         switch (event) {
             case 'user_joined': addSystemMessage(`${data} joined`); break;
             case 'user_left': addSystemMessage(`${data} left`); break;
-            case 'receive_message': addMessage(data.username, data.message, data.timestamp); break;
+            case 'receive_message': addMessage(data.username,
+data.message, data.timestamp); break;
             case 'users_list':
-                document.getElementById('users-online').textContent = `${data.length} users online`;
+                document.getElementById('users-online').textContent =
+`${data.length} users online`;
                 break;
             case 'mod_status':
                 if (data.isMod) addSystemMessage('You are now a moderator!');
@@ -94,7 +102,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function addMessage(username, message, timestamp) {
         const el = document.createElement('div');
         el.classList.add('message');
-        el.innerHTML = `<div class="username">${username}</div><div class="text">${message}</div><div class="timestamp">${timestamp}</div>`;
+        el.innerHTML = `<div class="username">${username}</div><div
+class="text">${message}</div><div
+class="timestamp">${timestamp}</div>`;
         messagesContainer.appendChild(el);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
