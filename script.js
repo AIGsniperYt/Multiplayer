@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let clientId = null;
     let lastUpdateTime = Date.now();
     let cryptoKey = null;
+    let isLeaving = false;
 
     // Initialize encryption
     initializeEncryption();
@@ -24,6 +25,15 @@ document.addEventListener('DOMContentLoaded', function() {
     usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
     sendButton.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+
+    // Handle page/tab close or refresh
+    window.addEventListener('beforeunload', () => {
+        if (clientId && !isLeaving) {
+            isLeaving = true;
+            // Send leave notification to server
+            navigator.sendBeacon(`${SERVER_URL}/api/leave`, JSON.stringify({ clientId }));
+        }
+    });
 
     // Encryption initialization
     async function initializeEncryption() {
@@ -185,7 +195,12 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ clientId, lastUpdate: lastUpdateTime })
         })
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                throw new Error('Server error');
+            }
+            return res.json();
+        })
         .then(async data => {
             if (data.events?.length) {
                 for (const e of data.events) {
@@ -197,6 +212,11 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(err => {
             console.error('Polling error:', err);
+            // If we get a 404, the server doesn't know about us anymore
+            if (err.message.includes('404') || err.message.includes('User not found')) {
+                addSystemMessage("Disconnected from server. Please refresh to reconnect.");
+                return;
+            }
             setTimeout(fetchUpdates, 2000); // retry after 2s on error
         });
     }
@@ -231,6 +251,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     addSystemMessage('You are now a moderator!');
                     document.getElementById('mod-tools').style.display = 'block';
                 }
+                break;
+            case 'kicked':
+                addSystemMessage('You have been kicked from the chat.');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
                 break;
         }
     }
