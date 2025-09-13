@@ -24,8 +24,11 @@ app.post('/api/join', (req, res) => {
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Store the username as-is (encrypted)
-  users.set(clientId, { username, isMod: false });
+  users.set(clientId, { username, isMod: false, joinedAt: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
+
+  // Log encrypted username to console
+  console.log(`User joined: ${username} (clientId: ${clientId})`);
 
   // Broadcast the encrypted username
   broadcastToAll('user_joined', username);
@@ -35,10 +38,13 @@ app.post('/api/join', (req, res) => {
     success: true,
     clientId,
     messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({ username: u.username, isMod: u.isMod }))
+    users: Array.from(users.values()).map(u => ({ 
+      username: u.username, 
+      isMod: u.isMod,
+      joinedAt: u.joinedAt 
+    }))
   });
 });
-
 
 app.post('/api/send-message', (req, res) => {
   const { clientId, message } = req.body;
@@ -46,12 +52,16 @@ app.post('/api/send-message', (req, res) => {
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
+  // Log encrypted message to console
+  console.log(`Encrypted message from ${user.username}: ${message}`);
+
   // Store the message as-is (encrypted)
   const msgData = { 
     id: Date.now(), 
     username: user.username, 
     message,  // This is encrypted
-    timestamp: new Date().toLocaleTimeString() 
+    timestamp: new Date().toLocaleTimeString(),
+    clientId: clientId
   };
   
   messages.push(msgData);
@@ -91,6 +101,16 @@ app.post('/api/become-mod', (req, res) => {
   res.json({ success: false });
 });
 
+// New endpoint to get active users
+app.get('/api/active-users', (req, res) => {
+  const activeUsers = Array.from(users.values()).map(u => ({
+    username: u.username,
+    isMod: u.isMod,
+    joinedAt: u.joinedAt
+  }));
+  res.json({ users: activeUsers });
+});
+
 // === Broadcast helpers ===
 function broadcastToAll(event, data) {
   const ev = { event, data, timestamp: Date.now() };
@@ -112,8 +132,12 @@ function broadcastToClient(clientId, event, data) {
 }
 
 function broadcastUsersList() {
-  const list = Array.from(users.values()).map(u => ({ username:
-u.username, isMod: u.isMod }));
+  const list = Array.from(users.values()).map(u => ({ 
+    username: u.username, 
+    isMod: u.isMod,
+    joinedAt: u.joinedAt 
+  }));
+  console.log(`Broadcasting users list: ${JSON.stringify(list)}`);
   broadcastToAll('users_list', list);
 }
 
@@ -128,12 +152,18 @@ events: [], timestamp: now });
       const user = users.get(clientId);
       if (user) {
         users.delete(clientId);
+        console.log(`User left: ${user.username} (clientId: ${clientId})`);
         broadcastToAll('user_left', user.username);
         broadcastUsersList();
       }
     }
   });
 }, 60000);
+
+// Log server status periodically
+setInterval(() => {
+  console.log(`Server status: ${users.size} active users, ${messages.length} messages stored`);
+}, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running
 on ${PORT} (long polling only)`));
