@@ -22,6 +22,8 @@ body {
     border-radius: 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     overflow: hidden;
+    margin-left: 240px; /* space for sidebar */
+    width: calc(100% - 240px);
 }
 
 header {
@@ -154,6 +156,7 @@ button:hover {
     margin-bottom: 20px;
     color: #4a5568;
 }
+
 copyright-footer {
     text-align: center;
     padding: 15px;
@@ -163,7 +166,8 @@ copyright-footer {
     margin-top: 20px;
     width: 100%;
 }
-/* Add to style.css */
+
+/* Delete button for messages */
 .delete-message-btn {
     background: #e53e3e;
     color: white;
@@ -193,12 +197,128 @@ copyright-footer {
 #mod-activation input {
     margin-bottom: 10px;
 }
+
 .username-input-group {
     display: flex;
     gap: 10px;
     justify-content: center;
     max-width: 400px;
     margin: 0 auto;
+}
+
+/* Sidebar Styles */
+.sidebar {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 200px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    height: 500px;
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+}
+
+.sidebar-header {
+    background: #4a5568;
+    color: white;
+    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+.sidebar-header h3 {
+    font-size: 16px;
+    margin: 0;
+}
+
+#users-count {
+    background: #667eea;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+.users-list {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.user-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #f7fafc;
+    transition: background 0.2s;
+}
+
+.user-item:hover {
+    background: #edf2f7;
+}
+
+.user-name {
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-mod {
+    color: #e53e3e;
+    font-weight: bold;
+    margin-left: 5px;
+}
+
+.kick-btn {
+    display: none;
+    background: #e53e3e;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    justify-content: center;
+    align-items: center;
+}
+
+.user-item:hover .kick-btn {
+    display: flex;
+}
+
+.kick-btn:hover {
+    background: #c53030;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1000px) {
+    .sidebar {
+        position: relative;
+        left: 0;
+        top: 0;
+        transform: none;
+        width: 100%;
+        height: 200px;
+        margin-bottom: 20px;
+    }
+    
+    .container {
+        margin-left: 0;
+        width: 100%;
+    }
 }
 
 @media (max-width: 600px) {
@@ -219,5 +339,7 @@ copyright-footer {
         flex-direction: column;
     }
 
+    .sidebar {
+        height: 150px;
+    }
 }
-
