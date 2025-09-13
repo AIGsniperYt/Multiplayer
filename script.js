@@ -301,11 +301,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id); 
                 break;
             case 'users_list': {
-                // data is an array of user objects from server
                 document.getElementById('users-online').textContent = `${data.length} users online`;
-
-                // update the sidebar user list
-                updateUserList(data).catch(err => console.error('updateUserList error', err));
+                updateActiveUsersList(data); // Update the sidebar user list
                 break;
             }
             case 'mod_status':
@@ -330,7 +327,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
         }
     }
-    
+    async function updateActiveUsersList(usersArray) {
+        const usersListEl = document.getElementById('active-users-list');
+        if (!usersListEl) return;
+        
+        usersListEl.innerHTML = '';
+        
+        for (const user of usersArray) {
+            try {
+                const displayName = await decryptText(user.username);
+                const userItem = document.createElement('div');
+                userItem.classList.add('user-item');
+                
+                const userNameSpan = document.createElement('span');
+                userNameSpan.classList.add('user-name');
+                userNameSpan.textContent = displayName + (user.isMod ? ' (Mod)' : '');
+                
+                userItem.appendChild(userNameSpan);
+                
+                // Add kick button for moderators
+                if (document.getElementById('mod-tools').style.display === 'block') {
+                    const kickBtn = document.createElement('button');
+                    kickBtn.classList.add('kick-btn');
+                    kickBtn.textContent = 'Kick';
+                    kickBtn.onclick = () => kickUser(user.username);
+                    userItem.appendChild(kickBtn);
+                }
+                
+                usersListEl.appendChild(userItem);
+            } catch (e) {
+                console.warn('Failed to decrypt username', e);
+            }
+        }
+    }
     async function updateUserList(usersArray) {
         const userListEl = document.getElementById('user-list');
         if (!userListEl) return;
