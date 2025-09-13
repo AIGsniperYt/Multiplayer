@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Encryption initialization
     async function initializeEncryption() {
         try {
-            // Generate a key from a fixed passphrase (in a real app, this would be more secure)
-            const passphrase = "chat-secret-2025"; // This would ideally be more complex
+            // Generate a key from a fixed passphrase
+            const passphrase = "chat-secret-" + new Date().getFullYear();
             const encoder = new TextEncoder();
             const keyData = encoder.encode(passphrase);
             
@@ -140,6 +140,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 messageInput.focus();
                 addSystemMessage(`Welcome, ${username}!`);
                 
+                // Display active users count
+                document.getElementById('users-online').textContent = `${data.users.length} users online`;
+                
                 // Decrypt and display previous messages
                 if (data.messages) {
                     for (const m of data.messages) {
@@ -214,26 +217,46 @@ document.addEventListener('DOMContentLoaded', function() {
                 addMessage(decryptedUsername, decryptedMessage, data.timestamp); 
                 break;
             case 'users_list':
-                // Decrypt each username in the list
-                const decryptedUsers = [];
-                for (const user of data) {
-                    const decryptedUser = {
-                        username: await decryptText(user.username),
-                        isMod: user.isMod
-                    };
-                    decryptedUsers.push(decryptedUser);
+                // Update users online count
+                document.getElementById('users-online').textContent = `${data.length} users online`;
+                
+                // Update mod tools user list if visible
+                const modTools = document.getElementById('mod-tools');
+                if (modTools.style.display !== 'none') {
+                    updateUserList(data);
                 }
-                document.getElementById('users-online').textContent = `${decryptedUsers.length} users online`;
                 break;
             case 'mod_status':
-                if (data.isMod) addSystemMessage('You are now a moderator!');
+                if (data.isMod) {
+                    addSystemMessage('You are now a moderator!');
+                    document.getElementById('mod-tools').style.display = 'block';
+                }
                 break;
         }
     }
 
+    function updateUserList(users) {
+        const userListEl = document.getElementById('user-list');
+        userListEl.innerHTML = '<h4>Connected Users:</h4>';
+        
+        const list = document.createElement('ul');
+        users.forEach(user => {
+            const item = document.createElement('li');
+            item.textContent = `${user.username} ${user.isMod ? '(Mod)' : ''}`;
+            list.appendChild(item);
+        });
+        
+        userListEl.appendChild(list);
+    }
+
     function addMessage(username, message, timestamp) {
         const el = document.createElement('div');
-        el.classList.add('message');
+        // Add class based on whether it's our message
+        if (username === username) {
+            el.classList.add('message', 'own');
+        } else {
+            el.classList.add('message', 'other');
+        }
         el.innerHTML = `<div class="username">${username}</div><div class="text">${message}</div><div class="timestamp">${timestamp}</div>`;
         messagesContainer.appendChild(el);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
