@@ -60,7 +60,7 @@ app.post('/api/send-message', (req, res) => {
     id: Date.now(), 
     username: user.username, 
     message,  // This is encrypted
-    timestamp: new Date().toLocaleTimeString(),
+    timestamp: Date.now(), // ← Use numeric timestamp instead
     clientId: clientId
   };
   
@@ -264,3 +264,4 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+
