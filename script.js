@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let lastUpdateTime = Date.now();
     let cryptoKey = null;
     let isLeaving = false;
+    let modActivationAttempted = false;
 
     // Initialize encryption
     initializeEncryption();
@@ -16,6 +17,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const joinButton = document.getElementById('join-button');
     const usernameSetup = document.getElementById('username-setup');
     const chatContainer = document.querySelector('.chat-container');
+    const modActivation = document.getElementById('mod-activation');
+    const modPasswordInput = document.getElementById('mod-password-input');
+    const modSubmitBtn = document.getElementById('mod-submit-btn');
+    const modCancelBtn = document.getElementById('mod-cancel-btn');
 
     chatContainer.style.display = 'none';
     addSystemMessage("Using long polling only (school-friendly)");
@@ -25,6 +30,16 @@ document.addEventListener('DOMContentLoaded', function() {
     usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
     sendButton.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+    messageInput.addEventListener('input', handleMessageInput);
+    modSubmitBtn.addEventListener('click', attemptModActivation);
+    modCancelBtn.addEventListener('click', () => {
+        modActivation.style.display = 'none';
+        modActivationAttempted = false;
+        messageInput.focus();
+    });
+    modPasswordInput.addEventListener('keypress', e => {
+        if (e.key === 'Enter') attemptModActivation();
+    });
 
     // Handle page/tab close or refresh
     window.addEventListener('beforeunload', () => {
@@ -37,7 +52,6 @@ document.addEventListener('DOMContentLoaded', function() {
             navigator.sendBeacon(`${SERVER_URL}/api/leave`, data);
         }
     });
-
 
     // Encryption initialization
     async function initializeEncryption() {
@@ -128,6 +142,48 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function handleMessageInput(e) {
+        const msg = messageInput.value;
+        
+        // Check for "/mod" command at the beginning of the message
+        if (msg === '/mod' && !modActivationAttempted) {
+            // Prevent the message from being sent
+            messageInput.value = '';
+            
+            // Show mod activation dialog
+            modActivationAttempted = true;
+            modActivation.style.display = 'block';
+            modPasswordInput.focus();
+        }
+    }
+
+    async function attemptModActivation() {
+        const password = modPasswordInput.value;
+        if (!password) return;
+        
+        try {
+            const response = await fetch(`${SERVER_URL}/api/become-mod`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, password })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                addSystemMessage('You are now a moderator!');
+                document.getElementById('mod-tools').style.display = 'block';
+                modActivation.style.display = 'none';
+            } else {
+                alert('Invalid mod password');
+                modPasswordInput.value = '';
+                modPasswordInput.focus();
+            }
+        } catch (error) {
+            console.error('Mod activation error:', error);
+            alert('Error activating mod status');
+        }
+    }
+
     async function joinChat() {
         username = usernameInput.value.trim();
         if (!username) return alert('Enter a username');
@@ -162,7 +218,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     for (const m of data.messages) {
                         const decryptedUsername = await decryptText(m.username);
                         const decryptedMessage = await decryptText(m.message);
-                        addMessage(decryptedUsername, decryptedMessage, m.timestamp);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id);
                     }
                 }
                 
@@ -235,10 +291,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const leftUser = await decryptText(data);
                 addSystemMessage(`${leftUser} left`); 
                 break;
+            case 'mod_joined': 
+                const modUsername = await decryptText(data);
+                addSystemMessage(`Moderator ${modUsername} has joined`); 
+                break;
             case 'receive_message': 
                 const decryptedUsername = await decryptText(data.username);
                 const decryptedMessage = await decryptText(data.message);
-                addMessage(decryptedUsername, decryptedMessage, data.timestamp); 
+                addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id); 
                 break;
             case 'users_list': {
                 // data is an array of user objects from server
@@ -260,8 +320,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     window.location.reload();
                 }, 2000);
                 break;
+            case 'message_deleted':
+                // Find and remove the message from UI
+                const messageEl = document.querySelector(`[data-message-id="${data}"]`);
+                if (messageEl) {
+                    messageEl.remove();
+                    addSystemMessage('A message was deleted by a moderator');
+                }
+                break;
         }
     }
+    
     async function updateUserList(usersArray) {
         const userListEl = document.getElementById('user-list');
         if (!userListEl) return;
@@ -278,24 +347,96 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const item = document.createElement('li');
             item.textContent = `${displayName} ${user.isMod ? '(Mod)' : ''}`;
+            
+            // Add kick button for moderators
+            if (document.getElementById('mod-tools').style.display === 'block') {
+                const kickBtn = document.createElement('button');
+                kickBtn.textContent = 'Kick';
+                kickBtn.classList.add('kick-user-btn');
+                kickBtn.style.marginLeft = '10px';
+                kickBtn.style.padding = '2px 5px';
+                kickBtn.style.fontSize = '10px';
+                kickBtn.onclick = () => kickUser(user.username);
+                item.appendChild(kickBtn);
+            }
+            
             list.appendChild(item);
         }
 
         userListEl.appendChild(list);
     }
+    
+    async function kickUser(username) {
+        if (!confirm(`Are you sure you want to kick ${username}?`)) return;
+        
+        try {
+            const response = await fetch(`${SERVER_URL}/api/kick-user`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, targetUsername: username })
+            });
+            
+            const data = await response.json();
+            if (!data.success) {
+                alert('Failed to kick user');
+            }
+        } catch (error) {
+            console.error('Kick user error:', error);
+            alert('Error kicking user');
+        }
+    }
+    
+    async function deleteMessage(messageId) {
+        if (!confirm('Are you sure you want to delete this message?')) return;
+        
+        try {
+            const response = await fetch(`${SERVER_URL}/api/delete-message`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, messageId })
+            });
+            
+            const data = await response.json();
+            if (!data.success) {
+                alert('Failed to delete message');
+            }
+        } catch (error) {
+            console.error('Delete message error:', error);
+            alert('Error deleting message');
+        }
+    }
 
-    function addMessage(msgUsername, message, timestamp) {
+    function addMessage(msgUsername, message, timestamp, messageId) {
         const el = document.createElement('div');
         if (msgUsername === username) { 
             el.classList.add('message', 'own');
         } else {
             el.classList.add('message', 'other');
         }
+        
+        // Add message ID as data attribute
+        if (messageId) {
+            el.setAttribute('data-message-id', messageId);
+        }
+        
         el.innerHTML = `
             <div class="username">${msgUsername}</div>
             <div class="text">${message}</div>
             <div class="timestamp">${timestamp}</div>
         `;
+        
+        // Add delete button for moderators
+        if (document.getElementById('mod-tools').style.display === 'block') {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.classList.add('delete-message-btn');
+            deleteBtn.style.marginLeft = '10px';
+            deleteBtn.style.padding = '2px 5px';
+            deleteBtn.style.fontSize = '10px';
+            deleteBtn.onclick = () => deleteMessage(messageId);
+            el.querySelector('.timestamp').appendChild(deleteBtn);
+        }
+        
         messagesContainer.appendChild(el);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
