@@ -6,31 +6,32 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: ["https://aigsniperyt.github.io"], credentials: true }));
+app.use(cors({
+  origin: ["https://aigsniperyt.github.io"],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  credentials: true
+}));
+app.options('*', cors()); // handle preflight
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..')));
 
-// === Long polling storage ===
+// === Storage ===
 const longPollingClients = new Map();
 const users = new Map();
 const messages = [];
 const SECRET_MOD_PASSWORD = "esports2024";
 
-// === HTTP endpoints ===
+// === Endpoints ===
 app.post('/api/join', (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Store the username as-is (encrypted)
-  users.set(clientId, { username, isMod: false, joinedAt: Date.now() });
+  users.set(clientId, { username, isMod: false, joinedAt: Date.now(), lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
-  // Log encrypted username to console
   console.log(`User joined: ${username} (clientId: ${clientId})`);
-
-  // Broadcast the encrypted username
   broadcastToAll('user_joined', username);
   broadcastUsersList();
 
@@ -38,10 +39,10 @@ app.post('/api/join', (req, res) => {
     success: true,
     clientId,
     messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({ 
-      username: u.username, 
+    users: Array.from(users.values()).map(u => ({
+      username: u.username,
       isMod: u.isMod,
-      joinedAt: u.joinedAt 
+      joinedAt: u.joinedAt
     }))
   });
 });
@@ -52,22 +53,19 @@ app.post('/api/send-message', (req, res) => {
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Log encrypted message to console
   console.log(`Encrypted message from ${user.username}: ${message}`);
 
-  // Store the message as-is (encrypted)
-  const msgData = { 
-    id: Date.now(), 
-    username: user.username, 
-    message,  // This is encrypted
+  const msgData = {
+    id: Date.now(),
+    username: user.username,
+    message,
     timestamp: new Date().toLocaleTimeString(),
-    clientId: clientId
+    clientId
   };
-  
+
   messages.push(msgData);
   if (messages.length > 100) messages.shift();
-  
-  // Broadcast the encrypted message
+
   broadcastToAll('receive_message', msgData);
   res.json({ success: true });
 });
@@ -78,12 +76,11 @@ app.post('/api/get-updates', (req, res) => {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Update last check time
   const userData = users.get(clientId);
   if (userData) {
     userData.lastCheck = Date.now();
   }
-  
+
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
   setTimeout(() => {
     const client = longPollingClients.get(clientId);
@@ -94,20 +91,17 @@ app.post('/api/get-updates', (req, res) => {
   }, 25000);
 });
 
-// New endpoint to handle user leave events
 app.post('/api/leave', (req, res) => {
   const { clientId } = req.body;
-  
   if (clientId && users.has(clientId)) {
     const user = users.get(clientId);
     users.delete(clientId);
     longPollingClients.delete(clientId);
-    
+
     console.log(`User left via leave API: ${user.username} (clientId: ${clientId})`);
     broadcastToAll('user_left', user.username);
     broadcastUsersList();
   }
-  
   res.json({ success: true });
 });
 
@@ -125,7 +119,6 @@ app.post('/api/become-mod', (req, res) => {
   res.json({ success: false });
 });
 
-// New endpoint to get active users
 app.get('/api/active-users', (req, res) => {
   const activeUsers = Array.from(users.values()).map(u => ({
     username: u.username,
@@ -135,23 +128,18 @@ app.get('/api/active-users', (req, res) => {
   res.json({ users: activeUsers });
 });
 
-// New endpoint for mods to kick users
 app.post('/api/kick-user', (req, res) => {
   const { clientId, targetUsername } = req.body;
-  
   if (!clientId || !targetUsername) {
     return res.status(400).json({ error: 'Missing parameters' });
   }
-  
   const moderator = users.get(clientId);
   if (!moderator || !moderator.isMod) {
     return res.status(403).json({ error: 'Not a moderator' });
   }
-  
-  // Find the user to kick
+
   let userToKick = null;
   let userClientId = null;
-  
   for (const [id, user] of users.entries()) {
     if (user.username === targetUsername) {
       userToKick = user;
@@ -159,22 +147,17 @@ app.post('/api/kick-user', (req, res) => {
       break;
     }
   }
-  
+
   if (userToKick && userClientId) {
-    // Notify the user they've been kicked
     broadcastToClient(userClientId, 'kicked', {});
-    
-    // Remove the user
     users.delete(userClientId);
     longPollingClients.delete(userClientId);
-    
+
     console.log(`User kicked: ${targetUsername} by ${moderator.username}`);
     broadcastToAll('user_left', userToKick.username);
     broadcastUsersList();
-    
     return res.json({ success: true });
   }
-  
   res.status(404).json({ error: 'User not found' });
 });
 
@@ -198,42 +181,45 @@ function broadcastToClient(clientId, event, data) {
 }
 
 function broadcastUsersList() {
-  const list = Array.from(users.values()).map(u => ({ 
-    username: u.username, 
+  const list = Array.from(users.values()).map(u => ({
+    username: u.username,
     isMod: u.isMod,
-    joinedAt: u.joinedAt 
+    joinedAt: u.joinedAt
   }));
   console.log(`Broadcasting users list: ${JSON.stringify(list)}`);
   broadcastToAll('users_list', list);
 }
 
-// === Cleanup (more forgiving) ===
+// === Cleanup ===
 setInterval(() => {
   const now = Date.now();
+
+  // cleanup polling clients
   longPollingClients.forEach((client, clientId) => {
-    if (now - client.lastCheck > 30000) { // 30s grace period instead of 90s
+    if (now - client.lastCheck > 30000) {
       if (client.res && !client.res.finished) {
-        try {
-          client.res.json({ events: [], timestamp: now });
-        } catch (e) {
-          // Response might already be closed
-        }
+        try { client.res.json({ events: [], timestamp: now }); } catch {}
       }
       longPollingClients.delete(clientId);
-      const user = users.get(clientId);
-      if (user) {
-        users.delete(clientId);
-        console.log(`User cleaned up due to inactivity: ${user.username} (clientId: ${clientId})`);
-        broadcastToAll('user_left', user.username);
-        broadcastUsersList();
-      }
     }
   });
-}, 10000); // Check every 10 seconds
 
-// Log server status periodically
+  // cleanup users
+  users.forEach((user, clientId) => {
+    if (now - user.lastCheck > 30000) {
+      users.delete(clientId);
+      longPollingClients.delete(clientId);
+      console.log(`User cleaned up due to inactivity: ${user.username} (clientId: ${clientId})`);
+      broadcastToAll('user_left', user.username);
+      broadcastUsersList();
+    }
+  });
+}, 10000);
+
 setInterval(() => {
   console.log(`Server status: ${users.size} active users, ${messages.length} messages stored`);
 }, 30000);
 
-http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+http.createServer(app).listen(PORT, () =>
+  console.log(`Server running on ${PORT} (long polling only)`)
+);
