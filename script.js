@@ -3,6 +3,10 @@ document.addEventListener('DOMContentLoaded', function() {
     let username = '';
     let clientId = null;
     let lastUpdateTime = Date.now();
+    let cryptoKey = null;
+
+    // Initialize encryption
+    initializeEncryption();
 
     const messagesContainer = document.getElementById('messages');
     const messageInput = document.getElementById('message-input');
@@ -14,25 +18,119 @@ document.addEventListener('DOMContentLoaded', function() {
 
     chatContainer.style.display = 'none';
     addSystemMessage("Using long polling only (school-friendly)");
+    addSystemMessage("All messages are encrypted end-to-end");
 
     joinButton.addEventListener('click', joinChat);
-    usernameInput.addEventListener('keypress', e => { if (e.key ===
-'Enter') joinChat(); });
+    usernameInput.addEventListener('keypress', e => { if (e.key === 'Enter') joinChat(); });
     sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', e => { if (e.key ===
-'Enter') sendMessage(); });
+    messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
 
-    function joinChat() {
+    // Encryption initialization
+    async function initializeEncryption() {
+        try {
+            // Generate a key from a fixed passphrase (in a real app, this would be more secure)
+            const passphrase = "chat-secret-2025"; // This would ideally be more complex
+            const encoder = new TextEncoder();
+            const keyData = encoder.encode(passphrase);
+            
+            // Import key for AES-GCM encryption
+            cryptoKey = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        } catch (error) {
+            console.error('Encryption initialization failed:', error);
+            addSystemMessage("Encryption unavailable - using plain text");
+        }
+    }
+
+    // Encryption function
+    async function encryptText(text) {
+        if (!cryptoKey) return text; // Fallback to plain text if encryption isn't available
+        
+        try {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(text);
+            
+            // Generate IV (Initialization Vector)
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            
+            // Encrypt the data
+            const encryptedData = await crypto.subtle.encrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                cryptoKey,
+                data
+            );
+            
+            // Combine IV and encrypted data, then convert to base64 for transmission
+            const combined = new Uint8Array(iv.length + encryptedData.byteLength);
+            combined.set(iv, 0);
+            combined.set(new Uint8Array(encryptedData), iv.length);
+            
+            return btoa(String.fromCharCode.apply(null, combined));
+        } catch (error) {
+            console.error('Encryption error:', error);
+            return text; // Fallback to plain text
+        }
+    }
+
+    // Decryption function
+    async function decryptText(encryptedBase64) {
+        if (!cryptoKey || !encryptedBase64.startsWith('ENCRYPTED:')) {
+            return encryptedBase64; // Not encrypted or encryption not available
+        }
+        
+        try {
+            // Remove the prefix and decode from base64
+            const encryptedData = encryptedBase64.substring(10);
+            const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+            
+            // Extract IV and encrypted data
+            const iv = combined.slice(0, 12);
+            const data = combined.slice(12);
+            
+            // Decrypt the data
+            const decryptedData = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-GCM',
+                    iv: iv
+                },
+                cryptoKey,
+                data
+            );
+            
+            // Convert back to text
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedData);
+        } catch (error) {
+            console.error('Decryption error:', error);
+            return "[Unable to decrypt message]";
+        }
+    }
+
+    async function joinChat() {
         username = usernameInput.value.trim();
         if (!username) return alert('Enter a username');
+
+        // Encrypt the username before sending
+        let encryptedUsername = username;
+        if (cryptoKey) {
+            encryptedUsername = "ENCRYPTED:" + await encryptText(username);
+        }
 
         fetch(`${SERVER_URL}/api/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username })
+            body: JSON.stringify({ username: encryptedUsername })
         })
         .then(res => res.json())
-        .then(data => {
+        .then(async data => {
             if (data.success) {
                 clientId = data.clientId;
                 usernameSetup.style.display = 'none';
@@ -41,20 +139,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 sendButton.disabled = false;
                 messageInput.focus();
                 addSystemMessage(`Welcome, ${username}!`);
-                if (data.messages) data.messages.forEach(m =>
-addMessage(m.username, m.message, m.timestamp));
+                
+                // Decrypt and display previous messages
+                if (data.messages) {
+                    for (const m of data.messages) {
+                        const decryptedUsername = await decryptText(m.username);
+                        const decryptedMessage = await decryptText(m.message);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp);
+                    }
+                }
+                
                 startPolling();
             } else alert('Failed to join: ' + data.error);
         }).catch(err => console.error('Join error:', err));
     }
 
-    function sendMessage() {
+    async function sendMessage() {
         const msg = messageInput.value.trim();
         if (!msg) return;
+        
+        // Encrypt the message before sending
+        let encryptedMessage = msg;
+        if (cryptoKey) {
+            encryptedMessage = "ENCRYPTED:" + await encryptText(msg);
+        }
+        
         fetch(`${SERVER_URL}/api/send-message`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, message: msg })
+            body: JSON.stringify({ clientId, message: encryptedMessage })
         }).then(() => messageInput.value = '');
     }
 
@@ -63,16 +176,18 @@ addMessage(m.username, m.message, m.timestamp));
         fetchUpdates();
     }
 
-    function fetchUpdates() {
+    async function fetchUpdates() {
         fetch(`${SERVER_URL}/api/get-updates`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ clientId, lastUpdate: lastUpdateTime })
         })
         .then(res => res.json())
-        .then(data => {
+        .then(async data => {
             if (data.events?.length) {
-                data.events.forEach(e => handleServerEvent(e.event, e.data));
+                for (const e of data.events) {
+                    await handleServerEvent(e.event, e.data);
+                }
             }
             lastUpdateTime = data.timestamp || Date.now();
             fetchUpdates(); // immediately open next poll
@@ -83,15 +198,32 @@ addMessage(m.username, m.message, m.timestamp));
         });
     }
 
-    function handleServerEvent(event, data) {
+    async function handleServerEvent(event, data) {
         switch (event) {
-            case 'user_joined': addSystemMessage(`${data} joined`); break;
-            case 'user_left': addSystemMessage(`${data} left`); break;
-            case 'receive_message': addMessage(data.username,
-data.message, data.timestamp); break;
+            case 'user_joined': 
+                const joinedUser = await decryptText(data);
+                addSystemMessage(`${joinedUser} joined`); 
+                break;
+            case 'user_left': 
+                const leftUser = await decryptText(data);
+                addSystemMessage(`${leftUser} left`); 
+                break;
+            case 'receive_message': 
+                const decryptedUsername = await decryptText(data.username);
+                const decryptedMessage = await decryptText(data.message);
+                addMessage(decryptedUsername, decryptedMessage, data.timestamp); 
+                break;
             case 'users_list':
-                document.getElementById('users-online').textContent =
-`${data.length} users online`;
+                // Decrypt each username in the list
+                const decryptedUsers = [];
+                for (const user of data) {
+                    const decryptedUser = {
+                        username: await decryptText(user.username),
+                        isMod: user.isMod
+                    };
+                    decryptedUsers.push(decryptedUser);
+                }
+                document.getElementById('users-online').textContent = `${decryptedUsers.length} users online`;
                 break;
             case 'mod_status':
                 if (data.isMod) addSystemMessage('You are now a moderator!');
@@ -102,9 +234,7 @@ data.message, data.timestamp); break;
     function addMessage(username, message, timestamp) {
         const el = document.createElement('div');
         el.classList.add('message');
-        el.innerHTML = `<div class="username">${username}</div><div
-class="text">${message}</div><div
-class="timestamp">${timestamp}</div>`;
+        el.innerHTML = `<div class="username">${username}</div><div class="text">${message}</div><div class="timestamp">${timestamp}</div>`;
         messagesContainer.appendChild(el);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
