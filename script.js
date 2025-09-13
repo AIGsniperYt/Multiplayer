@@ -328,19 +328,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateUserList(data);
                 break;
             }
-            case 'mod_status':
-                if (data.isMod) {
-                    isModerator = true;
-                    addSystemMessage('You are now a moderator!');
-                    // Add delete buttons to all existing messages
-                    addDeleteButtonsToAllMessages();
-                    // Refresh the user list to show kick buttons
-                    fetch(`${SERVER_URL}/api/active-users`)
-                        .then(res => res.json())
-                        .then(data => updateUserList(data.users))
-                        .catch(err => console.error('Error fetching users:', err));
-                }
-                break;
+        case 'mod_status':
+            if (data.isMod) {
+                isModerator = true;
+                addSystemMessage('You are now a moderator!');
+                // Add delete buttons to all existing messages
+                addDeleteButtonsToAllMessages();
+                // Refresh the user list to show kick buttons
+                fetch(`${SERVER_URL}/api/active-users`)
+                    .then(res => res.json())
+                    .then(data => updateUserList(data.users))
+                    .catch(err => console.error('Error fetching users:', err));
+            }
+            break;
             case 'kicked':
                 addSystemMessage('You have been kicked from the chat.');
                 setTimeout(() => {
