@@ -74,9 +74,16 @@ app.post('/api/send-message', (req, res) => {
 
 app.post('/api/get-updates', (req, res) => {
   const { clientId } = req.body;
-  if (!clientId || !users.has(clientId)) return res.status(404).json({
-error: 'User not found' });
+  if (!clientId || !users.has(clientId)) {
+    return res.status(404).json({ error: 'User not found' });
+  }
 
+  // Update last check time
+  const userData = users.get(clientId);
+  if (userData) {
+    userData.lastCheck = Date.now();
+  }
+  
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
   setTimeout(() => {
     const client = longPollingClients.get(clientId);
@@ -85,6 +92,23 @@ error: 'User not found' });
       longPollingClients.delete(clientId);
     }
   }, 25000);
+});
+
+// New endpoint to handle user leave events
+app.post('/api/leave', (req, res) => {
+  const { clientId } = req.body;
+  
+  if (clientId && users.has(clientId)) {
+    const user = users.get(clientId);
+    users.delete(clientId);
+    longPollingClients.delete(clientId);
+    
+    console.log(`User left via leave API: ${user.username} (clientId: ${clientId})`);
+    broadcastToAll('user_left', user.username);
+    broadcastUsersList();
+  }
+  
+  res.json({ success: true });
 });
 
 app.post('/api/become-mod', (req, res) => {
@@ -111,6 +135,49 @@ app.get('/api/active-users', (req, res) => {
   res.json({ users: activeUsers });
 });
 
+// New endpoint for mods to kick users
+app.post('/api/kick-user', (req, res) => {
+  const { clientId, targetUsername } = req.body;
+  
+  if (!clientId || !targetUsername) {
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+  
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) {
+    return res.status(403).json({ error: 'Not a moderator' });
+  }
+  
+  // Find the user to kick
+  let userToKick = null;
+  let userClientId = null;
+  
+  for (const [id, user] of users.entries()) {
+    if (user.username === targetUsername) {
+      userToKick = user;
+      userClientId = id;
+      break;
+    }
+  }
+  
+  if (userToKick && userClientId) {
+    // Notify the user they've been kicked
+    broadcastToClient(userClientId, 'kicked', {});
+    
+    // Remove the user
+    users.delete(userClientId);
+    longPollingClients.delete(userClientId);
+    
+    console.log(`User kicked: ${targetUsername} by ${moderator.username}`);
+    broadcastToAll('user_left', userToKick.username);
+    broadcastUsersList();
+    
+    return res.json({ success: true });
+  }
+  
+  res.status(404).json({ error: 'User not found' });
+});
+
 // === Broadcast helpers ===
 function broadcastToAll(event, data) {
   const ev = { event, data, timestamp: Date.now() };
@@ -125,8 +192,7 @@ function broadcastToAll(event, data) {
 function broadcastToClient(clientId, event, data) {
   const client = longPollingClients.get(clientId);
   if (client && client.res && !client.res.finished) {
-    client.res.json({ events: [{ event, data, timestamp: Date.now()
-}], timestamp: Date.now() });
+    client.res.json({ events: [{ event, data, timestamp: Date.now() }], timestamp: Date.now() });
     longPollingClients.delete(clientId);
   }
 }
@@ -145,25 +211,29 @@ function broadcastUsersList() {
 setInterval(() => {
   const now = Date.now();
   longPollingClients.forEach((client, clientId) => {
-    if (now - client.lastCheck > 90000) { // 90s grace
-      if (client.res && !client.res.finished) client.res.json({
-events: [], timestamp: now });
+    if (now - client.lastCheck > 30000) { // 30s grace period instead of 90s
+      if (client.res && !client.res.finished) {
+        try {
+          client.res.json({ events: [], timestamp: now });
+        } catch (e) {
+          // Response might already be closed
+        }
+      }
       longPollingClients.delete(clientId);
       const user = users.get(clientId);
       if (user) {
         users.delete(clientId);
-        console.log(`User left: ${user.username} (clientId: ${clientId})`);
+        console.log(`User cleaned up due to inactivity: ${user.username} (clientId: ${clientId})`);
         broadcastToAll('user_left', user.username);
         broadcastUsersList();
       }
     }
   });
-}, 60000);
+}, 10000); // Check every 10 seconds
 
 // Log server status periodically
 setInterval(() => {
   console.log(`Server status: ${users.size} active users, ${messages.length} messages stored`);
 }, 30000);
 
-http.createServer(app).listen(PORT, () => console.log(`Server running
-on ${PORT} (long polling only)`));
+http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
