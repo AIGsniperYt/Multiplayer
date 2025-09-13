@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Chat</title>
+    <title>Comms</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -43,7 +43,12 @@
                 <button id="kick-btn">Kick User</button>
             </div>
         </div>
-        
+        <div id="mod-activation" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.3); z-index: 1000;">
+            <h3>Moderator Authentication</h3>
+            <input type="password" id="mod-password-input" placeholder="Enter mod password">
+            <button id="mod-submit-btn">Submit</button>
+            <button id="mod-cancel-btn" style="margin-left: 10px;">Cancel</button>
+        </div>
         <!-- Copyright footer added here -->
         <footer class="copyright-footer">
             &copy; 2025 AIGsniper. All rights reserved.
