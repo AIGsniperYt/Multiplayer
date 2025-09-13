@@ -332,6 +332,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.isMod) {
                     isModerator = true;
                     addSystemMessage('You are now a moderator!');
+                    // Add delete buttons to all existing messages
+                    addDeleteButtonsToAllMessages();
                     // Refresh the user list to show kick buttons
                     fetch(`${SERVER_URL}/api/active-users`)
                         .then(res => res.json())
@@ -451,6 +453,28 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function addMessage(username, message, timestamp, messageId) {
+        // Check if message element already exists
+        const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (existingMessage) {
+            // If message already exists, just update the delete button if needed
+            if (isModerator) {
+                // Add delete button if it doesn't exist
+                if (!existingMessage.querySelector('.delete-btn')) {
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.classList.add('delete-btn');
+                    deleteBtn.title = 'Delete message';
+                    deleteBtn.innerHTML = '×';
+                    deleteBtn.onclick = () => deleteMessage(messageId);
+                    
+                    const messageHeader = existingMessage.querySelector('.message-header');
+                    if (messageHeader) {
+                        messageHeader.appendChild(deleteBtn);
+                    }
+                }
+            }
+            return; // Message already exists, no need to create a new one
+        }
+        
         const messageEl = document.createElement('div');
         messageEl.classList.add('message');
         messageEl.dataset.messageId = messageId;
@@ -477,7 +501,25 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-
+    function addDeleteButtonsToAllMessages() {
+        const allMessages = document.querySelectorAll('.message');
+        allMessages.forEach(messageEl => {
+            const messageId = messageEl.dataset.messageId;
+            // Only add delete button if it doesn't already exist
+            if (messageId && !messageEl.querySelector('.delete-btn')) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.classList.add('delete-btn');
+                deleteBtn.title = 'Delete message';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => deleteMessage(messageId);
+                
+                const messageHeader = messageEl.querySelector('.message-header');
+                if (messageHeader) {
+                    messageHeader.appendChild(deleteBtn);
+                }
+            }
+        });
+    }
     function addSystemMessage(message) {
         const messageEl = document.createElement('div');
         messageEl.classList.add('message', 'system-message');
