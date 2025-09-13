@@ -21,11 +21,13 @@ app.post('/api/join', (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
-  const clientId =
-`lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Store the username as-is (encrypted)
   users.set(clientId, { username, isMod: false });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
+  // Broadcast the encrypted username
   broadcastToAll('user_joined', username);
   broadcastUsersList();
 
@@ -33,22 +35,29 @@ app.post('/api/join', (req, res) => {
     success: true,
     clientId,
     messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({ username:
-u.username, isMod: u.isMod }))
+    users: Array.from(users.values()).map(u => ({ username: u.username, isMod: u.isMod }))
   });
 });
 
+
 app.post('/api/send-message', (req, res) => {
   const { clientId, message } = req.body;
-  if (!clientId || !message) return res.status(400).json({ error:
-'Missing fields' });
+  if (!clientId || !message) return res.status(400).json({ error: 'Missing fields' });
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const msgData = { id: Date.now(), username: user.username, message,
-timestamp: new Date().toLocaleTimeString() };
+  // Store the message as-is (encrypted)
+  const msgData = { 
+    id: Date.now(), 
+    username: user.username, 
+    message,  // This is encrypted
+    timestamp: new Date().toLocaleTimeString() 
+  };
+  
   messages.push(msgData);
   if (messages.length > 100) messages.shift();
+  
+  // Broadcast the encrypted message
   broadcastToAll('receive_message', msgData);
   res.json({ success: true });
 });
