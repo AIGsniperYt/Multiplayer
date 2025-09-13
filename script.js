@@ -30,10 +30,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('beforeunload', () => {
         if (clientId && !isLeaving) {
             isLeaving = true;
-            // Send leave notification to server
-            navigator.sendBeacon(`${SERVER_URL}/api/leave`, JSON.stringify({ clientId }));
+            const data = new Blob(
+                [JSON.stringify({ clientId })],
+                { type: 'application/json' }
+            );
+            navigator.sendBeacon(`${SERVER_URL}/api/leave`, data);
         }
     });
+
 
     // Encryption initialization
     async function initializeEncryption() {
@@ -296,3 +300,4 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 });
+
