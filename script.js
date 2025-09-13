@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let cryptoKey = null;
     let isLeaving = false;
     let modActivationAttempted = false;
+    let isModerator = false; // Track if current user is a moderator
 
     // Initialize encryption
     initializeEncryption();
@@ -170,10 +171,13 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const data = await response.json();
             if (data.success) {
+                isModerator = true;
                 addSystemMessage('You are now a moderator!');
-                // Instead of showing the old mod tools, we'll just enable the kick buttons in the sidebar
-                document.getElementById('mod-tools').style.display = 'none'; // Keep this hidden
-                // The sidebar will automatically show kick buttons for mods
+                // Refresh the user list to show kick buttons
+                fetch(`${SERVER_URL}/api/active-users`)
+                    .then(res => res.json())
+                    .then(data => updateUserList(data.users))
+                    .catch(err => console.error('Error fetching users:', err));
                 modActivation.style.display = 'none';
             } else {
                 alert('Invalid mod password');
@@ -214,6 +218,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Display active users count
                 document.getElementById('users-online').textContent = `${data.users.length} users online`;
+                
+                // Update user list in sidebar
+                updateUserList(data.users);
                 
                 // Decrypt and display previous messages
                 if (data.messages) {
@@ -283,16 +290,18 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(fetchUpdates, 2000); // retry after 2s on error
         });
     }
-function startUserListRefresh() {
-    setInterval(() => {
-        if (clientId) {
-            fetch(`${SERVER_URL}/api/active-users`)
-                .then(res => res.json())
-                .then(data => updateUserList(data.users))
-                .catch(err => console.error('Error fetching users:', err));
-        }
-    }, 10000); // Refresh every 10 seconds
-}
+
+    function startUserListRefresh() {
+        setInterval(() => {
+            if (clientId) {
+                fetch(`${SERVER_URL}/api/active-users`)
+                    .then(res => res.json())
+                    .then(data => updateUserList(data.users))
+                    .catch(err => console.error('Error fetching users:', err));
+            }
+        }, 10000); // Refresh every 10 seconds
+    }
+    
     async function handleServerEvent(event, data) {
         switch (event) {
             case 'user_joined': 
@@ -315,13 +324,13 @@ function startUserListRefresh() {
             case 'users_list': {
                 // data is an array of user objects from server
                 document.getElementById('users-online').textContent = `${data.length} users online`;
-
                 // update the sidebar user list
-                updateUserList(data).catch(err => console.error('updateUserList error', err));
+                updateUserList(data);
                 break;
             }
             case 'mod_status':
                 if (data.isMod) {
+                    isModerator = true;
                     addSystemMessage('You are now a moderator!');
                     // Refresh the user list to show kick buttons
                     fetch(`${SERVER_URL}/api/active-users`)
@@ -347,62 +356,62 @@ function startUserListRefresh() {
         }
     }
     
-async function updateUserList(usersArray) {
-    const usersListEl = document.getElementById('users-list');
-    const usersCountEl = document.getElementById('users-count');
-    
-    if (!usersListEl || !usersCountEl) return;
+    async function updateUserList(usersArray) {
+        const usersListEl = document.getElementById('users-list');
+        const usersCountEl = document.getElementById('users-count');
+        
+        if (!usersListEl || !usersCountEl) return;
 
-    // Update user count
-    usersCountEl.textContent = usersArray.length;
-    
-    // Clear current list
-    usersListEl.innerHTML = '';
-    
-    // Add each user to the list
-    for (const user of usersArray) {
-        let displayName = user.username;
-        try {
-            displayName = await decryptText(displayName);
-        } catch (e) {
-            console.warn('Failed to decrypt username, using raw value', e);
+        // Update user count
+        usersCountEl.textContent = usersArray.length;
+        
+        // Clear current list
+        usersListEl.innerHTML = '';
+        
+        // Add each user to the list
+        for (const user of usersArray) {
+            let displayName = user.username;
+            try {
+                displayName = await decryptText(displayName);
+            } catch (e) {
+                console.warn('Failed to decrypt username, using raw value', e);
+            }
+            
+            const userItem = document.createElement('div');
+            userItem.classList.add('user-item');
+            
+            const nameContainer = document.createElement('div');
+            nameContainer.classList.add('user-name');
+            nameContainer.textContent = displayName;
+            
+            if (user.isMod) {
+                const modBadge = document.createElement('span');
+                modBadge.classList.add('user-mod');
+                modBadge.textContent = ' (M)';
+                nameContainer.appendChild(modBadge);
+            }
+            
+            userItem.appendChild(nameContainer);
+            
+            // Add kick button for moderators only
+            if (isModerator && displayName !== username) {
+                const kickBtn = document.createElement('button');
+                kickBtn.classList.add('kick-btn');
+                kickBtn.title = `Kick ${displayName}`;
+                kickBtn.innerHTML = '×';
+                kickBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    kickUser(user.username);
+                };
+                userItem.appendChild(kickBtn);
+            }
+            
+            usersListEl.appendChild(userItem);
         }
-        
-        const userItem = document.createElement('div');
-        userItem.classList.add('user-item');
-        
-        const nameContainer = document.createElement('div');
-        nameContainer.classList.add('user-name');
-        nameContainer.textContent = displayName;
-        
-        if (user.isMod) {
-            const modBadge = document.createElement('span');
-            modBadge.classList.add('user-mod');
-            modBadge.textContent = ' (M)';
-            nameContainer.appendChild(modBadge);
-        }
-        
-        userItem.appendChild(nameContainer);
-        
-        // Add kick button for moderators
-        if (document.getElementById('mod-tools').style.display === 'block') {
-            const kickBtn = document.createElement('button');
-            kickBtn.classList.add('kick-btn');
-            kickBtn.title = `Kick ${displayName}`;
-            kickBtn.innerHTML = '×';
-            kickBtn.onclick = (e) => {
-                e.stopPropagation();
-                kickUser(user.username);
-            };
-            userItem.appendChild(kickBtn);
-        }
-        
-        usersListEl.appendChild(userItem);
     }
-}
     
     async function kickUser(username) {
-        if (!confirm(`Are you sure you want to kick ${username}?`)) return;
+        if (!confirm(`Are you sure you want to kick this user?`)) return;
         
         try {
             const response = await fetch(`${SERVER_URL}/api/kick-user`, {
@@ -441,46 +450,45 @@ async function updateUserList(usersArray) {
         }
     }
 
-    function addMessage(msgUsername, message, timestamp, messageId) {
-        const el = document.createElement('div');
-        if (msgUsername === username) { 
-            el.classList.add('message', 'own');
-        } else {
-            el.classList.add('message', 'other');
-        }
+    function addMessage(username, message, timestamp, messageId) {
+        const messageEl = document.createElement('div');
+        messageEl.classList.add('message');
+        messageEl.dataset.messageId = messageId;
         
-        // Add message ID as data attribute
-        if (messageId) {
-            el.setAttribute('data-message-id', messageId);
-        }
-        
-        el.innerHTML = `
-            <div class="username">${msgUsername}</div>
-            <div class="text">${message}</div>
-            <div class="timestamp">${timestamp}</div>
+        const time = new Date(timestamp).toLocaleTimeString();
+        messageEl.innerHTML = `
+            <div class="message-header">
+                <span class="message-username">${escapeHtml(username)}</span>
+                <span class="message-time">${time}</span>
+            </div>
+            <div class="message-content">${escapeHtml(message)}</div>
         `;
         
         // Add delete button for moderators
-        if (document.getElementById('mod-tools').style.display === 'block') {
+        if (isModerator) {
             const deleteBtn = document.createElement('button');
-            deleteBtn.textContent = 'Delete';
-            deleteBtn.classList.add('delete-message-btn');
-            deleteBtn.style.marginLeft = '10px';
-            deleteBtn.style.padding = '2px 5px';
-            deleteBtn.style.fontSize = '10px';
+            deleteBtn.classList.add('delete-btn');
+            deleteBtn.title = 'Delete message';
+            deleteBtn.innerHTML = '×';
             deleteBtn.onclick = () => deleteMessage(messageId);
-            el.querySelector('.timestamp').appendChild(deleteBtn);
+            messageEl.querySelector('.message-header').appendChild(deleteBtn);
         }
         
-        messagesContainer.appendChild(el);
+        messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    function addSystemMessage(msg) {
-        const el = document.createElement('div');
-        el.classList.add('system-message');
-        el.textContent = msg;
-        messagesContainer.appendChild(el);
+    function addSystemMessage(message) {
+        const messageEl = document.createElement('div');
+        messageEl.classList.add('message', 'system-message');
+        messageEl.innerHTML = `<div class="message-content">${escapeHtml(message)}</div>`;
+        messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 });
