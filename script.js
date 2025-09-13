@@ -240,16 +240,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const decryptedMessage = await decryptText(data.message);
                 addMessage(decryptedUsername, decryptedMessage, data.timestamp); 
                 break;
-            case 'users_list':
-                // Update users online count
+            case 'users_list': {
+                // data is an array of user objects from server
                 document.getElementById('users-online').textContent = `${data.length} users online`;
-                
-                // Update mod tools user list if visible
-                const modTools = document.getElementById('mod-tools');
-                if (modTools.style.display !== 'none') {
-                    updateUserList(data);
-                }
+
+                // update the sidebar user list
+                updateUserList(data).catch(err => console.error('updateUserList error', err));
                 break;
+            }
             case 'mod_status':
                 if (data.isMod) {
                     addSystemMessage('You are now a moderator!');
@@ -264,30 +262,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
         }
     }
-
-    function updateUserList(users) {
+    async function updateUserList(usersArray) {
         const userListEl = document.getElementById('user-list');
+        if (!userListEl) return;
+
         userListEl.innerHTML = '<h4>Connected Users:</h4>';
-        
         const list = document.createElement('ul');
-        users.forEach(user => {
+
+        for (const user of usersArray) {
+            let displayName = user.username;
+            try {
+                displayName = await decryptText(displayName);
+            } catch (e) {
+                console.warn('Failed to decrypt username, using raw value', e);
+            }
             const item = document.createElement('li');
-            item.textContent = `${user.username} ${user.isMod ? '(Mod)' : ''}`;
+            item.textContent = `${displayName} ${user.isMod ? '(Mod)' : ''}`;
             list.appendChild(item);
-        });
-        
+        }
+
         userListEl.appendChild(list);
     }
 
-    function addMessage(username, message, timestamp) {
+    function addMessage(msgUsername, message, timestamp) {
         const el = document.createElement('div');
-        // Add class based on whether it's our message
-        if (username === username) {
+        if (msgUsername === username) { 
             el.classList.add('message', 'own');
         } else {
             el.classList.add('message', 'other');
         }
-        el.innerHTML = `<div class="username">${username}</div><div class="text">${message}</div><div class="timestamp">${timestamp}</div>`;
+        el.innerHTML = `
+            <div class="username">${msgUsername}</div>
+            <div class="text">${message}</div>
+            <div class="timestamp">${timestamp}</div>
+        `;
         messagesContainer.appendChild(el);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
@@ -300,4 +308,3 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 });
-
