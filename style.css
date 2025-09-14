@@ -117,10 +117,11 @@ body {
 }
 
 .main-chat .chat-container {
-    background-color: #36393f;
     flex: 1;
     display: flex;
+    background-color: #36393f;
     flex-direction: column;
+    overflow: hidden; /* prevents input from being pushed away */
 }
 
 .main-chat .messages {
@@ -131,6 +132,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 15px;
+    min-height: 0; /* important: allows flexbox child to shrink and scroll */
 }
 
 .main-chat .message {
@@ -168,6 +170,7 @@ body {
 }
 
 .main-chat .input-area {
+    flex-shrink: 0; /* keeps it fixed at bottom */
     background-color: #36393f;
     border-top: 1px solid #2f3136;
     padding: 15px 20px;
