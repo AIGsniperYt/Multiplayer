@@ -6,16 +6,26 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Fix CORS configuration
-app.use(cors({ 
-    origin: ["https://aigsniperyt.github.io", "http://localhost:3000", "http://127.0.0.1:5500"],
-    credentials: true 
+// ✅ CORS at the very top
+app.use(cors({
+  origin: [
+    "https://aigsniperyt.github.io",
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  credentials: true
 }));
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '..')));
 
-// Handle preflight requests
-app.options('*', cors());
+// ✅ Handle preflight globally
+app.options("*", cors());
+
+// JSON middleware
+app.use(express.json());
+
+// Static files AFTER CORS
+app.use(express.static(path.join(__dirname, '..')));
 
 // === Long polling storage ===
 const longPollingClients = new Map();
@@ -29,15 +39,10 @@ app.post('/api/join', (req, res) => {
   if (!username) return res.status(400).json({ error: 'Username required' });
 
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Store the username as-is (encrypted)
   users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
-  // Log encrypted username to console
   console.log(`User joined: ${username} (clientId: ${clientId})`);
-
-  // Broadcast the encrypted username
   broadcastToAll('user_joined', username);
   broadcastUsersList();
 
@@ -45,8 +50,8 @@ app.post('/api/join', (req, res) => {
     success: true,
     clientId,
     messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({ 
-      username: u.username, 
+    users: Array.from(users.values()).map(u => ({
+      username: u.username,
       isMod: u.isMod,
       joinedAt: u.joinedAt,
       clientId: u.clientId
