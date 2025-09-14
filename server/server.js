@@ -6,9 +6,16 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: ["https://aigsniperyt.github.io"], credentials: true }));
+// Fix CORS configuration
+app.use(cors({ 
+    origin: ["https://aigsniperyt.github.io", "http://localhost:3000", "http://127.0.0.1:5500"],
+    credentials: true 
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..')));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // === Long polling storage ===
 const longPollingClients = new Map();
@@ -24,7 +31,7 @@ app.post('/api/join', (req, res) => {
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Store the username as-is (encrypted)
-  users.set(clientId, { username, isMod: false, joinedAt: Date.now() });
+  users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
   // Log encrypted username to console
@@ -41,7 +48,8 @@ app.post('/api/join', (req, res) => {
     users: Array.from(users.values()).map(u => ({ 
       username: u.username, 
       isMod: u.isMod,
-      joinedAt: u.joinedAt 
+      joinedAt: u.joinedAt,
+      clientId: u.clientId
     }))
   });
 });
@@ -132,7 +140,8 @@ app.get('/api/active-users', (req, res) => {
   const activeUsers = Array.from(users.values()).map(u => ({
     username: u.username,
     isMod: u.isMod,
-    joinedAt: u.joinedAt
+    joinedAt: u.joinedAt,
+    clientId: u.clientId
   }));
   res.json({ users: activeUsers });
 });
@@ -204,8 +213,8 @@ app.post('/api/delete-message', (req, res) => {
   
   res.status(404).json({ error: 'Message not found' });
 });
-// Add this to the server.js file after the existing endpoints
 
+// DM endpoint
 app.post('/api/send-dm', (req, res) => {
   const { clientId, targetClientId, message } = req.body;
   if (!clientId || !targetClientId || !message) {
@@ -241,14 +250,6 @@ app.post('/api/send-dm', (req, res) => {
   res.json({ success: true });
 });
 
-// Add this to the broadcastToClient function to ensure it works for DMs
-function broadcastToClient(clientId, event, data) {
-  const client = longPollingClients.get(clientId);
-  if (client && client.res && !client.res.finished) {
-    client.res.json({ events: [{ event, data, timestamp: Date.now() }], timestamp: Date.now() });
-    longPollingClients.delete(clientId);
-  }
-}
 // === Broadcast helpers ===
 function broadcastToAll(event, data) {
   const ev = { event, data, timestamp: Date.now() };
@@ -272,7 +273,8 @@ function broadcastUsersList() {
   const list = Array.from(users.values()).map(u => ({ 
     username: u.username, 
     isMod: u.isMod,
-    joinedAt: u.joinedAt 
+    joinedAt: u.joinedAt,
+    clientId: u.clientId
   }));
   console.log(`Broadcasting users list: ${JSON.stringify(list)}`);
   broadcastToAll('users_list', list);
