@@ -7,20 +7,29 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Sidebar for online users -->
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h3>Online Users</h3>
-            <span id="users-count">0</span>
+    <!-- Channels sidebar -->
+    <div class="channels-sidebar">
+        <div class="channels-header">
+            <h3>Channels</h3>
         </div>
-        <div id="users-list" class="users-list">
-            <!-- Users will be populated here -->
+        <div class="channels-list">
+            <div class="channel-item active" data-channel="global">
+                <span class="channel-icon">#</span>
+                <span class="channel-name">global</span>
+            </div>
+            <div class="channel-category">
+                <span class="category-name">DIRECT MESSAGES</span>
+            </div>
+            <div id="dm-channels" class="dm-channels">
+                <!-- DM channels will be populated here -->
+            </div>
         </div>
     </div>
 
-    <div class="container">
+    <!-- Main chat area -->
+    <div class="main-chat">
         <header>
-            <h1>Multiplayer Chat</h1>
+            <h1 id="current-channel">Global Chat</h1>
             <div>
                 <span id="users-online">0 users online</span>
                 <span id="encryption-status" style="margin-left: 10px; font-size: 12px; background: #48bb78; color: white; padding: 2px 8px; border-radius: 10px;">Encrypted</span>
@@ -56,8 +65,19 @@
         
         <!-- Copyright footer -->
         <footer class="copyright-footer">
-            &copy; 2025 AIGsniper. All rights reserved. The developer does not accept responsibility of misuse of app
+            &copy; 2025 AIGsniper. All rights reserved. The developer does not accept any responsibility for misuse of app
         </footer>
+    </div>
+
+    <!-- Users sidebar -->
+    <div class="users-sidebar">
+        <div class="users-header">
+            <h3>Online Users</h3>
+            <span id="users-count">0</span>
+        </div>
+        <div id="users-list" class="users-list">
+            <!-- Users will be populated here -->
+        </div>
     </div>
 
     <script src="script.js"></script>
