@@ -7,6 +7,11 @@ document.addEventListener('DOMContentLoaded', function() {
     let isLeaving = false;
     let modActivationAttempted = false;
     let isModerator = false; // Track if current user is a moderator
+    
+    // DM functionality variables
+    let currentChannel = 'global';
+    let dmChannels = new Map(); // Map of DM channels: key = otherUserId, value = { messages: [], username: '' }
+    let globalMessages = []; // Store global messages separately
 
     // Initialize encryption
     initializeEncryption();
@@ -22,6 +27,20 @@ document.addEventListener('DOMContentLoaded', function() {
     const modPasswordInput = document.getElementById('mod-password-input');
     const modSubmitBtn = document.getElementById('mod-submit-btn');
     const modCancelBtn = document.getElementById('mod-cancel-btn');
+    
+    // Channel toggle buttons for mobile
+    const channelToggle = document.createElement('button');
+    channelToggle.classList.add('channel-toggle');
+    channelToggle.innerHTML = '≡';
+    channelToggle.style.display = 'none';
+    
+    const usersToggle = document.createElement('button');
+    usersToggle.classList.add('users-toggle');
+    usersToggle.innerHTML = '👥';
+    usersToggle.style.display = 'none';
+    
+    document.body.appendChild(channelToggle);
+    document.body.appendChild(usersToggle);
 
     chatContainer.style.display = 'none';
     addSystemMessage("Using long polling only (school-friendly)");
@@ -41,6 +60,23 @@ document.addEventListener('DOMContentLoaded', function() {
     modPasswordInput.addEventListener('keypress', e => {
         if (e.key === 'Enter') attemptModActivation();
     });
+    
+    // Channel toggle functionality
+    const channelsSidebar = document.querySelector('.channels-sidebar');
+    const usersSidebar = document.querySelector('.users-sidebar');
+    
+    channelToggle.addEventListener('click', () => {
+        channelsSidebar.classList.toggle('visible');
+    });
+    
+    usersToggle.addEventListener('click', () => {
+        usersSidebar.classList.toggle('visible');
+    });
+    
+    // Global channel click handler
+    document.querySelector('[data-channel="global"]').addEventListener('click', () => {
+        switchChannel('global', 'Global Chat', false);
+    });
 
     // Handle page/tab close or refresh
     window.addEventListener('beforeunload', () => {
@@ -53,6 +89,23 @@ document.addEventListener('DOMContentLoaded', function() {
             navigator.sendBeacon(`${SERVER_URL}/api/leave`, data);
         }
     });
+    
+    // Check screen size for mobile view
+    function checkScreenSize() {
+        if (window.innerWidth <= 900) {
+            channelToggle.style.display = 'flex';
+            usersToggle.style.display = 'flex';
+        } else {
+            channelToggle.style.display = 'none';
+            usersToggle.style.display = 'none';
+            channelsSidebar.classList.remove('visible');
+            usersSidebar.classList.remove('visible');
+        }
+    }
+    
+    // Initial check and resize listener
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
 
     // Encryption initialization
     async function initializeEncryption() {
@@ -222,12 +275,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Update user list in sidebar
                 updateUserList(data.users);
                 
-                // Decrypt and display previous messages
+                // Store and display previous messages
                 if (data.messages) {
+                    globalMessages = data.messages;
                     for (const m of data.messages) {
                         const decryptedUsername = await decryptText(m.username);
                         const decryptedMessage = await decryptText(m.message);
-                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
                     }
                 }
                 
@@ -247,11 +301,25 @@ document.addEventListener('DOMContentLoaded', function() {
             encryptedMessage = "ENCRYPTED:" + await encryptText(msg);
         }
         
-        fetch(`${SERVER_URL}/api/send-message`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, message: encryptedMessage })
-        }).then(() => messageInput.value = '');
+        if (currentChannel === 'global') {
+            // Send to global chat
+            fetch(`${SERVER_URL}/api/send-message`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, message: encryptedMessage })
+            }).then(() => messageInput.value = '');
+        } else if (dmChannels.has(currentChannel)) {
+            // Send DM
+            fetch(`${SERVER_URL}/api/send-dm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    clientId, 
+                    targetClientId: currentChannel, 
+                    message: encryptedMessage 
+                })
+            }).then(() => messageInput.value = '');
+        }
     }
 
     // === Proper long polling (no setInterval) ===
@@ -319,7 +387,37 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'receive_message': 
                 const decryptedUsername = await decryptText(data.username);
                 const decryptedMessage = await decryptText(data.message);
-                addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id); 
+                // Store in global messages
+                globalMessages.push(data);
+                addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id, false); 
+                break;
+            case 'receive_dm':
+                const dmSenderUsername = await decryptText(data.senderUsername);
+                const dmMessage = await decryptText(data.message);
+                
+                // Store the DM message
+                if (!dmChannels.has(data.senderId)) {
+                    createDMChannel(data.senderId, dmSenderUsername);
+                }
+                
+                const dmChannel = dmChannels.get(data.senderId);
+                dmChannel.messages.push({
+                    id: data.id,
+                    username: dmSenderUsername,
+                    message: dmMessage,
+                    timestamp: data.timestamp
+                });
+                
+                // If we're currently viewing this DM channel, display the message
+                if (currentChannel === data.senderId) {
+                    addMessage(dmSenderUsername, dmMessage, data.timestamp, data.id, true);
+                } else {
+                    // Show notification for new DM
+                    const channelItem = document.querySelector(`[data-channel="${data.senderId}"]`);
+                    if (channelItem) {
+                        channelItem.classList.add('has-notification');
+                    }
+                }
                 break;
             case 'users_list': {
                 // data is an array of user objects from server
@@ -328,19 +426,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateUserList(data);
                 break;
             }
-        case 'mod_status':
-            if (data.isMod) {
-                isModerator = true;
-                addSystemMessage('You are now a moderator!');
-                // Add delete buttons to all existing messages
-                addDeleteButtonsToAllMessages();
-                // Refresh the user list to show kick buttons
-                fetch(`${SERVER_URL}/api/active-users`)
-                    .then(res => res.json())
-                    .then(data => updateUserList(data.users))
-                    .catch(err => console.error('Error fetching users:', err));
-            }
-            break;
+            case 'mod_status':
+                if (data.isMod) {
+                    isModerator = true;
+                    addSystemMessage('You are now a moderator!');
+                    // Add delete buttons to all existing messages
+                    addDeleteButtonsToAllMessages();
+                    // Refresh the user list to show kick buttons
+                    fetch(`${SERVER_URL}/api/active-users`)
+                        .then(res => res.json())
+                        .then(data => updateUserList(data.users))
+                        .catch(err => console.error('Error fetching users:', err));
+                }
+                break;
             case 'kicked':
                 addSystemMessage('You have been kicked from the chat.');
                 setTimeout(() => {
@@ -394,6 +492,20 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             userItem.appendChild(nameContainer);
+            
+            // Add DM button for each user (except yourself)
+            if (user.clientId !== clientId) {
+                const dmBtn = document.createElement('button');
+                dmBtn.classList.add('dm-btn');
+                dmBtn.title = `Message ${displayName}`;
+                dmBtn.innerHTML = '✉️';
+                dmBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    createDMChannel(user.clientId, displayName);
+                    switchChannel(user.clientId, displayName, true);
+                };
+                userItem.appendChild(dmBtn);
+            }
             
             // Add kick button for moderators only
             if (isModerator && displayName !== username) {
@@ -451,8 +563,69 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Error deleting message');
         }
     }
+    
+    // Channel switching function
+    function switchChannel(channelId, channelName, isDM = false) {
+        currentChannel = channelId;
+        document.getElementById('current-channel').textContent = isDM ? `DM with ${channelName}` : 'Global Chat';
+        
+        // Update active channel in UI
+        document.querySelectorAll('.channel-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-channel="${channelId}"]`).classList.add('active');
+        
+        // Clear notification if any
+        document.querySelector(`[data-channel="${channelId}"]`).classList.remove('has-notification');
+        
+        // Clear messages and load appropriate ones
+        const messagesContainer = document.getElementById('messages');
+        messagesContainer.innerHTML = '';
+        
+        if (isDM) {
+            // Load DM messages
+            const dmChannel = dmChannels.get(channelId);
+            if (dmChannel && dmChannel.messages) {
+                dmChannel.messages.forEach(msg => {
+                    addMessage(msg.username, msg.message, msg.timestamp, msg.id, true);
+                });
+            }
+        } else {
+            // Load global messages
+            globalMessages.forEach(msg => {
+                addMessage(msg.username, msg.message, msg.timestamp, msg.id, false);
+            });
+        }
+    }
+    
+    // Function to create a DM channel
+    function createDMChannel(userId, username) {
+        if (!dmChannels.has(userId)) {
+            dmChannels.set(userId, {
+                username: username,
+                messages: []
+            });
+            
+            // Add to UI
+            const dmChannelsContainer = document.getElementById('dm-channels');
+            const dmChannelItem = document.createElement('div');
+            dmChannelItem.classList.add('channel-item', 'dm-channel');
+            dmChannelItem.dataset.channel = userId;
+            dmChannelItem.dataset.isDm = 'true';
+            dmChannelItem.innerHTML = `
+                <span class="channel-icon">@</span>
+                <span class="channel-name">${username}</span>
+            `;
+            
+            dmChannelItem.addEventListener('click', () => {
+                switchChannel(userId, username, true);
+            });
+            
+            dmChannelsContainer.appendChild(dmChannelItem);
+        }
+    }
 
-    function addMessage(username, message, timestamp, messageId) {
+    function addMessage(username, message, timestamp, messageId, isDM) {
         // Check if message element already exists
         const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
         if (existingMessage) {
@@ -479,6 +652,11 @@ document.addEventListener('DOMContentLoaded', function() {
         messageEl.classList.add('message');
         messageEl.dataset.messageId = messageId;
         
+        // Add DM indicator for direct messages
+        if (isDM) {
+            messageEl.classList.add('dm-message');
+        }
+        
         const time = new Date(timestamp).toLocaleTimeString();
         messageEl.innerHTML = `
             <div class="message-header">
@@ -501,6 +679,7 @@ document.addEventListener('DOMContentLoaded', function() {
         messagesContainer.appendChild(messageEl);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
+    
     function addDeleteButtonsToAllMessages() {
         const allMessages = document.querySelectorAll('.message');
         allMessages.forEach(messageEl => {
@@ -520,6 +699,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
     function addSystemMessage(message) {
         const messageEl = document.createElement('div');
         messageEl.classList.add('message', 'system-message');
