@@ -204,7 +204,51 @@ app.post('/api/delete-message', (req, res) => {
   
   res.status(404).json({ error: 'Message not found' });
 });
+// Add this to the server.js file after the existing endpoints
 
+app.post('/api/send-dm', (req, res) => {
+  const { clientId, targetClientId, message } = req.body;
+  if (!clientId || !targetClientId || !message) {
+    return res.status(400).json({ error: 'Missing fields' });
+  }
+  
+  const sender = users.get(clientId);
+  const receiver = users.get(targetClientId);
+  
+  if (!sender || !receiver) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  // Log encrypted DM to console
+  console.log(`Encrypted DM from ${sender.username} to ${receiver.username}: ${message}`);
+
+  // Create DM message
+  const dmData = { 
+    id: Date.now(), 
+    senderId: clientId,
+    senderUsername: sender.username,
+    receiverId: targetClientId,
+    receiverUsername: receiver.username,
+    message,  // This is encrypted
+    timestamp: Date.now(),
+    isDM: true
+  };
+  
+  // Send to both participants
+  broadcastToClient(clientId, 'receive_dm', dmData);
+  broadcastToClient(targetClientId, 'receive_dm', dmData);
+  
+  res.json({ success: true });
+});
+
+// Add this to the broadcastToClient function to ensure it works for DMs
+function broadcastToClient(clientId, event, data) {
+  const client = longPollingClients.get(clientId);
+  if (client && client.res && !client.res.finished) {
+    client.res.json({ events: [{ event, data, timestamp: Date.now() }], timestamp: Date.now() });
+    longPollingClients.delete(clientId);
+  }
+}
 // === Broadcast helpers ===
 function broadcastToAll(event, data) {
   const ev = { event, data, timestamp: Date.now() };
@@ -264,4 +308,3 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
-
