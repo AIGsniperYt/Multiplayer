@@ -221,7 +221,21 @@ body {
     padding: 15px 0;
     overflow-y: auto;
 }
+#server-status {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  background: #48bb78;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  z-index: 1000;
+}
 
+#server-status.inactive {
+  background: #e53e3e;
+}
 .users-header {
     padding: 0 15px 15px;
     border-bottom: 1px solid #202225;
