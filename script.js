@@ -212,37 +212,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function attemptModActivation() {
-        const password = modPasswordInput.value;
-        if (!password) return;
-        
-        try {
-            const response = await fetch(`${SERVER_URL}/api/become-mod`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, password })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                isModerator = true;
-                addSystemMessage('You are now a moderator!');
-                // Refresh the user list to show kick buttons
-                fetch(`${SERVER_URL}/api/active-users`)
-                    .then(res => res.json())
-                    .then(data => updateUserList(data.users))
-                    .catch(err => console.error('Error fetching users:', err));
-                modActivation.style.display = 'none';
-            } else {
-                alert('Invalid mod password');
-                modPasswordInput.value = '';
-                modPasswordInput.focus();
-            }
-        } catch (error) {
-            console.error('Mod activation error:', error);
-            alert('Error activating mod status');
-        }
-    }
 
     async function joinChat() {
         username = usernameInput.value.trim();
