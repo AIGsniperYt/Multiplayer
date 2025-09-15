@@ -122,6 +122,7 @@ body {
     background-color: #36393f;
     flex-direction: column;
     overflow: hidden; /* prevents input from being pushed away */
+    min-height: 0;    /* key for scroll to work */
 }
 
 .main-chat .messages {
