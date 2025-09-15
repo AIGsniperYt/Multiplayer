@@ -216,21 +216,24 @@ document.addEventListener('DOMContentLoaded', function() {
     async function joinChat() {
         username = usernameInput.value.trim();
         if (!username) return alert('Enter a username');
+        
         // First check server status
         try {
             const statusResponse = await fetch(`${SERVER_URL}/api/status`);
             const statusData = await statusResponse.json();
             
             if (!statusData.active) {
-            showServerActivation();
-            return;
+                showServerActivation();
+                return;
+            } else {
+                // SERVER IS ACTIVE! Proceed to join.
+                await proceedWithJoin();
             }
         } catch (error) {
             console.error('Status check error:', error);
             addSystemMessage("Unable to connect to server");
             return;
         }
-
     }
     // Extract the joining logic from joinChat into a separate function
     async function proceedWithJoin() {
