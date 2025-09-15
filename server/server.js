@@ -8,11 +8,31 @@ const PORT = process.env.PORT || 3001;
 
 // CORS at the very top
 app.use(cors({
-  origin: [
-    "https://aigsniperyt.github.io/Multiplayer/",
-    "http://localhost:3000",
-    "http://127.0.0.1:5500"
-  ],
+  origin: function (origin, callback) {
+    // 1. Allow requests with no origin (like from mobile apps, Postman, or same-origin requests)
+    if (!origin) {
+      console.log('CORS: No origin header (likely same-origin request). Allowing.');
+      return callback(null, true);
+    }
+
+    // 2. List of allowed origins
+    const allowedOrigins = [
+      "https://aigsniperyt.github.io", // Your GitHub Pages site
+      "http://localhost:3000",         // Local React dev server
+      "http://127.0.0.1:5500",         // Local Live Server (VS Code)
+      "http://localhost:5500"          // Another common Live Server port
+    ];
+
+    // 3. Check if the origin is in the allowed list
+    if (allowedOrigins.includes(origin)) {
+      console.log('CORS: Allowing request from origin:', origin);
+      callback(null, true);
+    } else {
+      // 4. Log the blocked origin for debugging (check your Render logs!)
+      console.log('🚫 CORS: BLOCKING request from origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
   credentials: true
