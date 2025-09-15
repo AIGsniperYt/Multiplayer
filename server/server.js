@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 // CORS at the very top
 app.use(cors({
   origin: [
-    "https://aigsniperyt.github.io",
+    "https://aigsniperyt.github.io/Multiplayer/",
     "http://localhost:3000",
     "http://127.0.0.1:5500"
   ],
@@ -365,3 +365,4 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+
