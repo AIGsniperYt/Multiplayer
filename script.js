@@ -7,7 +7,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let isLeaving = false;
     let modActivationAttempted = false;
     let isModerator = false; // Track if current user is a moderator
-    
+    let serverActivationAttempted = false;
+
     // DM functionality variables
     let currentChannel = 'global';
     let dmChannels = new Map(); // Map of DM channels: key = otherUserId, value = { messages: [], username: '' }
@@ -27,7 +28,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const modPasswordInput = document.getElementById('mod-password-input');
     const modSubmitBtn = document.getElementById('mod-submit-btn');
     const modCancelBtn = document.getElementById('mod-cancel-btn');
-    
+    const serverActivation = document.getElementById('server-activation');
+    const serverPasswordInput = document.getElementById('server-password-input');
+    const serverActivateBtn = document.getElementById('server-activate-btn');
+    const serverCancelBtn = document.getElementById('server-cancel-btn');
+    const serverStatus = document.getElementById('server-status');
+
     // Channel toggle buttons for mobile
     const channelToggle = document.createElement('button');
     channelToggle.classList.add('channel-toggle');
@@ -43,7 +49,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.appendChild(usersToggle);
 
     chatContainer.style.display = 'none';
-    addSystemMessage("Using long polling only (school-friendly)");
     addSystemMessage("All messages are encrypted end-to-end");
 
     joinButton.addEventListener('click', joinChat);
@@ -60,7 +65,15 @@ document.addEventListener('DOMContentLoaded', function() {
     modPasswordInput.addEventListener('keypress', e => {
         if (e.key === 'Enter') attemptModActivation();
     });
-    
+    serverActivateBtn.addEventListener('click', activateServer);
+    serverCancelBtn.addEventListener('click', () => {
+        serverActivation.style.display = 'none';
+        serverActivationAttempted = false;
+    });
+    serverPasswordInput.addEventListener('keypress', e => {
+        if (e.key === 'Enter') activateServer();
+    });
+
     // Channel toggle functionality
     const channelsSidebar = document.querySelector('.channels-sidebar');
     const usersSidebar = document.querySelector('.users-sidebar');
@@ -246,7 +259,24 @@ document.addEventListener('DOMContentLoaded', function() {
     async function joinChat() {
         username = usernameInput.value.trim();
         if (!username) return alert('Enter a username');
+        // First check server status
+        try {
+            const statusResponse = await fetch(`${SERVER_URL}/api/status`);
+            const statusData = await statusResponse.json();
+            
+            if (!statusData.active) {
+            showServerActivation();
+            return;
+            }
+        } catch (error) {
+            console.error('Status check error:', error);
+            addSystemMessage("Unable to connect to server");
+            return;
+        }
 
+    }
+    // Extract the joining logic from joinChat into a separate function
+    async function proceedWithJoin() {
         // Encrypt the username before sending
         let encryptedUsername = username;
         if (cryptoKey) {
@@ -261,34 +291,74 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(res => res.json())
         .then(async data => {
             if (data.success) {
-                clientId = data.clientId;
-                usernameSetup.style.display = 'none';
-                chatContainer.style.display = 'flex';
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                messageInput.focus();
-                addSystemMessage(`Welcome, ${username}!`);
-                
-                // Display active users count
-                document.getElementById('users-online').textContent = `${data.users.length} users online`;
-                
-                // Update user list in sidebar
-                updateUserList(data.users);
-                
-                // Store and display previous messages
-                if (data.messages) {
-                    globalMessages = data.messages;
-                    for (const m of data.messages) {
-                        const decryptedUsername = await decryptText(m.username);
-                        const decryptedMessage = await decryptText(m.message);
-                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
-                    }
+            clientId = data.clientId;
+            usernameSetup.style.display = 'none';
+            chatContainer.style.display = 'flex';
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+            messageInput.focus();
+            addSystemMessage(`Welcome, ${username}!`);
+            
+            // Display active users count
+            document.getElementById('users-online').textContent = `${data.users.length} users online`;
+            
+            // Update user list in sidebar
+            updateUserList(data.users);
+            
+            // Store and display previous messages
+            if (data.messages) {
+                globalMessages = data.messages;
+                for (const m of data.messages) {
+                const decryptedUsername = await decryptText(m.username);
+                const decryptedMessage = await decryptText(m.message);
+                addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
                 }
-                
-                startPolling();
-                startUserListRefresh();
+            }
+            
+            startPolling();
+            startUserListRefresh();
             } else alert('Failed to join: ' + data.error);
         }).catch(err => console.error('Join error:', err));
+    }
+    async function activateServer() {
+    const password = serverPasswordInput.value;
+    if (!password) return;
+
+    try {
+        const response = await fetch(`${SERVER_URL}/api/activate-server`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+        serverActivation.style.display = 'none';
+        serverStatus.style.display = 'block';
+        serverStatus.textContent = 'Server Active';
+        serverStatus.style.background = '#48bb78';
+        
+        // If we got a clientId, store it and proceed with join
+        if (data.clientId) {
+            clientId = data.clientId;
+            isModerator = data.isMod;
+            proceedWithJoin();
+        }
+        } else {
+        alert('Invalid activation password');
+        serverPasswordInput.value = '';
+        serverPasswordInput.focus();
+        }
+    } catch (error) {
+        console.error('Server activation error:', error);
+        alert('Error activating server');
+    }
+    }
+
+    function showServerActivation() {
+        serverActivationAttempted = true;
+        serverActivation.style.display = 'block';
+        serverPasswordInput.focus();
     }
 
     async function sendMessage() {
@@ -372,6 +442,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     async function handleServerEvent(event, data) {
         switch (event) {
+            case 'server_activated':
+                serverStatus.style.display = 'block';
+                serverStatus.textContent = 'Server Active';
+                serverStatus.style.background = '#48bb78';
+                addSystemMessage('Server has been activated');
+                break;
+            case 'server_deactivated':
+                serverStatus.style.display = 'block';
+                serverStatus.textContent = 'Server Inactive';
+                serverStatus.style.background = '#e53e3e';
+                addSystemMessage('Server has been deactivated. Please refresh.');
+                // Disable chat functionality
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+                break;
             case 'user_joined': 
                 const joinedUser = await decryptText(data);
                 addSystemMessage(`${joinedUser} joined`); 
