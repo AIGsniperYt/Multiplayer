@@ -24,10 +24,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const joinButton = document.getElementById('join-button');
     const usernameSetup = document.getElementById('username-setup');
     const chatContainer = document.querySelector('.chat-container');
-    const modActivation = document.getElementById('mod-activation');
-    const modPasswordInput = document.getElementById('mod-password-input');
-    const modSubmitBtn = document.getElementById('mod-submit-btn');
-    const modCancelBtn = document.getElementById('mod-cancel-btn');
     const serverActivation = document.getElementById('server-activation');
     const serverPasswordInput = document.getElementById('server-password-input');
     const serverActivateBtn = document.getElementById('server-activate-btn');
