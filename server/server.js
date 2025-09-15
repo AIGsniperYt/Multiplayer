@@ -23,7 +23,25 @@ app.options("*", cors());
 
 // JSON middleware
 app.use(express.json());
-
+// Security headers middleware
+app.use((req, res, next) => {
+  // 1. Set Cache-Control for all responses
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  
+  // 2. Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // 3. Remove the X-Powered-By header (often done by Helmet.js)
+  res.removeHeader('X-Powered-By');
+  
+  // 4. (Bonus) Other very important security headers
+  // This defines which features and APIs can be used in the browser (e.g., prevent misuse of microphone/camera)
+  res.setHeader('Permissions-Policy', 'interest-cohort=()');
+  // This helps prevent clickjacking attacks
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  next();
+});
 // Static files AFTER CORS
 app.use(express.static(path.join(__dirname, '..')));
 
