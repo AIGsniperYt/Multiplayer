@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ✅ CORS at the very top
+// CORS at the very top
 app.use(cors({
   origin: [
     "https://aigsniperyt.github.io",
@@ -18,7 +18,7 @@ app.use(cors({
   credentials: true
 }));
 
-// ✅ Handle preflight globally
+// Handle preflight globally
 app.options("*", cors());
 
 // JSON middleware
@@ -31,15 +31,63 @@ app.use(express.static(path.join(__dirname, '..')));
 const longPollingClients = new Map();
 const users = new Map();
 const messages = [];
-const SECRET_MOD_PASSWORD = "esports2024";
+
+// === Server Activation System ===
+let isServerActive = false;
+let activeModerator = null;
+const SERVER_ACTIVATION_PASSWORD = "esports2024";
+const SERVER_TIMEOUT = 120000; // 2 minutes
+
+setInterval(() => {
+  if (isServerActive && activeModerator) {
+    const mod = users.get(activeModerator);
+    if (!mod || Date.now() - mod.lastCheck > 30000) {
+      console.log("Moderator disconnected - deactivating server");
+      deactivateServer();
+    }
+  } else if (isServerActive && !activeModerator) {
+    setTimeout(() => {
+      if (!activeModerator) {
+        console.log("Server timeout - no moderator present");
+        deactivateServer();
+      }
+    }, SERVER_TIMEOUT);
+  }
+}, 30000);
+
+function activateServer(modClientId) {
+  isServerActive = true;
+  activeModerator = modClientId;
+  console.log(`Server activated by moderator: ${users.get(modClientId)?.username}`);
+  broadcastToAll('server_activated', {});
+}
+
+function deactivateServer() {
+  isServerActive = false;
+  activeModerator = null;
+  console.log("Server deactivated - requires moderator");
+  users.clear();
+  longPollingClients.forEach((client, clientId) => {
+    if (client.res && !client.res.finished) {
+      client.res.json({ error: 'Server deactivated. Please refresh.' });
+    }
+  });
+  longPollingClients.clear();
+  messages.length = 0;
+  broadcastToAll('server_deactivated', {});
+}
 
 // === HTTP endpoints ===
 app.post('/api/join', (req, res) => {
+  if (!isServerActive) {
+    return res.status(403).json({ error: 'Server not active. Requires moderator activation.' });
+  }
+
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId });
+  users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId, lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
   console.log(`User joined: ${username} (clientId: ${clientId})`);
@@ -60,42 +108,40 @@ app.post('/api/join', (req, res) => {
 });
 
 app.post('/api/send-message', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId, message } = req.body;
   if (!clientId || !message) return res.status(400).json({ error: 'Missing fields' });
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Log encrypted message to console
   console.log(`Encrypted message from ${user.username}: ${message}`);
 
-  // Store the message as-is (encrypted)
   const msgData = { 
     id: Date.now(), 
     username: user.username, 
-    message,  // This is encrypted
-    timestamp: Date.now(), // ← Use numeric timestamp instead
+    message,
+    timestamp: Date.now(),
     clientId: clientId
   };
   
   messages.push(msgData);
   if (messages.length > 100) messages.shift();
   
-  // Broadcast the encrypted message
   broadcastToAll('receive_message', msgData);
   res.json({ success: true });
 });
 
 app.post('/api/get-updates', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId } = req.body;
   if (!clientId || !users.has(clientId)) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Update last check time
   const userData = users.get(clientId);
-  if (userData) {
-    userData.lastCheck = Date.now();
-  }
+  if (userData) userData.lastCheck = Date.now();
   
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
   setTimeout(() => {
@@ -107,30 +153,54 @@ app.post('/api/get-updates', (req, res) => {
   }, 25000);
 });
 
-// New endpoint to handle user leave events
 app.post('/api/leave', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId } = req.body;
-  
   if (clientId && users.has(clientId)) {
     const user = users.get(clientId);
     users.delete(clientId);
     longPollingClients.delete(clientId);
-    
     console.log(`User left via leave API: ${user.username} (clientId: ${clientId})`);
     broadcastToAll('user_left', user.username);
     broadcastUsersList();
   }
-  
   res.json({ success: true });
+});
+
+app.post('/api/activate-server', (req, res) => {
+  const { password, clientId: providedClientId } = req.body;
+  if (password === SERVER_ACTIVATION_PASSWORD) {
+    if (!isServerActive) {
+      let clientId = providedClientId;
+      if (!clientId || !users.has(clientId)) {
+        clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        users.set(clientId, {
+          username: "Moderator",
+          isMod: true,
+          joinedAt: Date.now(),
+          clientId,
+          lastCheck: Date.now()
+        });
+      } else {
+        const user = users.get(clientId);
+        user.isMod = true;
+      }
+      activateServer(clientId);
+      return res.json({ success: true, clientId, isMod: true });
+    }
+    return res.json({ success: true, message: 'Server already active' });
+  }
+  res.json({ success: false, error: 'Invalid activation password' });
 });
 
 app.post('/api/become-mod', (req, res) => {
   const { clientId, password } = req.body;
-  if (password === SECRET_MOD_PASSWORD) {
+  if (password === SERVER_ACTIVATION_PASSWORD) {
     const user = users.get(clientId);
     if (user) {
       user.isMod = true;
-      // Announce mod join to all users
+      if (!isServerActive) activateServer(clientId);
       broadcastToAll('mod_joined', user.username);
       broadcastToClient(clientId, 'mod_status', { isMod: true });
       broadcastUsersList();
@@ -140,8 +210,12 @@ app.post('/api/become-mod', (req, res) => {
   res.json({ success: false });
 });
 
-// New endpoint to get active users
+app.get('/api/status', (req, res) => {
+  res.json({ active: isServerActive, users: users.size, requiresMod: !activeModerator && isServerActive });
+});
+
 app.get('/api/active-users', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
   const activeUsers = Array.from(users.values()).map(u => ({
     username: u.username,
     isMod: u.isMod,
@@ -151,107 +225,70 @@ app.get('/api/active-users', (req, res) => {
   res.json({ users: activeUsers });
 });
 
-// New endpoint for mods to kick users
 app.post('/api/kick-user', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId, targetUsername } = req.body;
-  
-  if (!clientId || !targetUsername) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
-  
+  if (!clientId || !targetUsername) return res.status(400).json({ error: 'Missing parameters' });
   const moderator = users.get(clientId);
-  if (!moderator || !moderator.isMod) {
-    return res.status(403).json({ error: 'Not a moderator' });
-  }
-  
-  // Find the user to kick
-  let userToKick = null;
-  let userClientId = null;
-  
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  let userToKick = null, userClientId = null;
   for (const [id, user] of users.entries()) {
-    if (user.username === targetUsername) {
-      userToKick = user;
-      userClientId = id;
-      break;
-    }
+    if (user.username === targetUsername) { userToKick = user; userClientId = id; break; }
   }
-  
   if (userToKick && userClientId) {
-    // Notify the user they've been kicked
     broadcastToClient(userClientId, 'kicked', {});
-    
-    // Remove the user
     users.delete(userClientId);
     longPollingClients.delete(userClientId);
-    
     console.log(`User kicked: ${targetUsername} by ${moderator.username}`);
     broadcastToAll('user_left', userToKick.username);
     broadcastUsersList();
-    
     return res.json({ success: true });
   }
-  
   res.status(404).json({ error: 'User not found' });
 });
 
-// Add message deletion endpoint
 app.post('/api/delete-message', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId, messageId } = req.body;
-  
-  if (!clientId || !messageId) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
-  
+  if (!clientId || !messageId) return res.status(400).json({ error: 'Missing parameters' });
   const moderator = users.get(clientId);
-  if (!moderator || !moderator.isMod) {
-    return res.status(403).json({ error: 'Not a moderator' });
-  }
-  
-  // Find and remove the message
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
   const messageIndex = messages.findIndex(m => m.id === messageId);
   if (messageIndex !== -1) {
     messages.splice(messageIndex, 1);
-    // Broadcast message deletion to all clients
     broadcastToAll('message_deleted', messageId);
     return res.json({ success: true });
   }
-  
   res.status(404).json({ error: 'Message not found' });
 });
 
-// DM endpoint
 app.post('/api/send-dm', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
   const { clientId, targetClientId, message } = req.body;
-  if (!clientId || !targetClientId || !message) {
-    return res.status(400).json({ error: 'Missing fields' });
-  }
-  
+  if (!clientId || !targetClientId || !message) return res.status(400).json({ error: 'Missing fields' });
   const sender = users.get(clientId);
   const receiver = users.get(targetClientId);
-  
-  if (!sender || !receiver) {
-    return res.status(404).json({ error: 'User not found' });
-  }
+  if (!sender || !receiver) return res.status(404).json({ error: 'User not found' });
 
-  // Log encrypted DM to console
   console.log(`Encrypted DM from ${sender.username} to ${receiver.username}: ${message}`);
 
-  // Create DM message
   const dmData = { 
     id: Date.now(), 
     senderId: clientId,
     senderUsername: sender.username,
     receiverId: targetClientId,
     receiverUsername: receiver.username,
-    message,  // This is encrypted
+    message,
     timestamp: Date.now(),
     isDM: true
   };
-  
-  // Send to both participants
   broadcastToClient(clientId, 'receive_dm', dmData);
   broadcastToClient(targetClientId, 'receive_dm', dmData);
-  
   res.json({ success: true });
 });
 
@@ -285,17 +322,13 @@ function broadcastUsersList() {
   broadcastToAll('users_list', list);
 }
 
-// === Cleanup (more forgiving) ===
+// === Cleanup ===
 setInterval(() => {
   const now = Date.now();
   longPollingClients.forEach((client, clientId) => {
-    if (now - client.lastCheck > 30000) { // 30s grace period instead of 90s
+    if (now - client.lastCheck > 30000) {
       if (client.res && !client.res.finished) {
-        try {
-          client.res.json({ events: [], timestamp: now });
-        } catch (e) {
-          // Response might already be closed
-        }
+        try { client.res.json({ events: [], timestamp: now }); } catch {}
       }
       longPollingClients.delete(clientId);
       const user = users.get(clientId);
@@ -307,11 +340,10 @@ setInterval(() => {
       }
     }
   });
-}, 10000); // Check every 10 seconds
+}, 10000);
 
-// Log server status periodically
 setInterval(() => {
-  console.log(`Server status: ${users.size} active users, ${messages.length} messages stored`);
+  console.log(`Server status: active=${isServerActive}, users=${users.size}, messages=${messages.length}`);
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
