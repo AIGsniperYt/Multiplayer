@@ -52,15 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {
     sendButton.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
     messageInput.addEventListener('input', handleMessageInput);
-    modSubmitBtn.addEventListener('click', attemptModActivation);
-    modCancelBtn.addEventListener('click', () => {
-        modActivation.style.display = 'none';
-        modActivationAttempted = false;
-        messageInput.focus();
-    });
-    modPasswordInput.addEventListener('keypress', e => {
-        if (e.key === 'Enter') attemptModActivation();
-    });
+
     serverActivateBtn.addEventListener('click', activateServer);
     serverCancelBtn.addEventListener('click', () => {
         serverActivation.style.display = 'none';
