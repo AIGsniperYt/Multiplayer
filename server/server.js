@@ -25,7 +25,6 @@ app.use(cors({
 
     // 3. Check if the origin is in the allowed list
     if (allowedOrigins.includes(origin)) {
-      console.log('CORS: Allowing request from origin:', origin);
       callback(null, true);
     } else {
       // 4. Log the blocked origin for debugging (check your Render logs!)
@@ -385,4 +384,5 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+
 
