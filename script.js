@@ -237,7 +237,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     // Extract the joining logic from joinChat into a separate function
     async function proceedWithJoin() {
-        // Encrypt the username before sending
+        // If we already became mod during activation, don’t call /api/join again
+        if (isModerator && clientId) {
+            usernameSetup.style.display = 'none';
+            chatContainer.style.display = 'flex';
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+            messageInput.focus();
+            addSystemMessage(`Moderator session active`);
+
+            // Fetch active users + recent messages so the mod sees context
+            try {
+                const statusRes = await fetch(`${SERVER_URL}/api/active-users`);
+                const statusData = await statusRes.json();
+                updateUserList(statusData.users);
+                document.getElementById('users-online').textContent = `${statusData.users.length} users online`;
+            } catch (e) {
+                console.error("Failed to fetch active users:", e);
+            }
+
+            try {
+                const msgsRes = await fetch(`${SERVER_URL}/api/status`);
+                const msgsData = await msgsRes.json();
+                if (msgsData && msgsData.messages) {
+                    globalMessages = msgsData.messages;
+                    for (const m of msgsData.messages) {
+                        const decryptedUsername = await decryptText(m.username);
+                        const decryptedMessage = await decryptText(m.message);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch messages:", e);
+            }
+
+            startPolling();
+            startUserListRefresh();
+            return;
+        }
+
+        // --- Normal join flow for regular users ---
         let encryptedUsername = username;
         if (cryptoKey) {
             encryptedUsername = "ENCRYPTED:" + await encryptText(username);
@@ -251,35 +290,35 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(res => res.json())
         .then(async data => {
             if (data.success) {
-            clientId = data.clientId;
-            usernameSetup.style.display = 'none';
-            chatContainer.style.display = 'flex';
-            messageInput.disabled = false;
-            sendButton.disabled = false;
-            messageInput.focus();
-            addSystemMessage(`Welcome, ${username}!`);
-            
-            // Display active users count
-            document.getElementById('users-online').textContent = `${data.users.length} users online`;
-            
-            // Update user list in sidebar
-            updateUserList(data.users);
-            
-            // Store and display previous messages
-            if (data.messages) {
-                globalMessages = data.messages;
-                for (const m of data.messages) {
-                const decryptedUsername = await decryptText(m.username);
-                const decryptedMessage = await decryptText(m.message);
-                addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
+                clientId = data.clientId;
+                usernameSetup.style.display = 'none';
+                chatContainer.style.display = 'flex';
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+                messageInput.focus();
+                addSystemMessage(`Welcome, ${username}!`);
+                
+                document.getElementById('users-online').textContent = `${data.users.length} users online`;
+                updateUserList(data.users);
+
+                if (data.messages) {
+                    globalMessages = data.messages;
+                    for (const m of data.messages) {
+                        const decryptedUsername = await decryptText(m.username);
+                        const decryptedMessage = await decryptText(m.message);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
+                    }
                 }
+
+                startPolling();
+                startUserListRefresh();
+            } else {
+                alert('Failed to join: ' + data.error);
             }
-            
-            startPolling();
-            startUserListRefresh();
-            } else alert('Failed to join: ' + data.error);
-        }).catch(err => console.error('Join error:', err));
+        })
+        .catch(err => console.error('Join error:', err));
     }
+
     async function activateServer() {
     const password = serverPasswordInput.value;
     if (!password) return;
