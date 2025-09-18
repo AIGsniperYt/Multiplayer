@@ -266,8 +266,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function sendServerMessage(message) {
-        console.log('Sending server message:', { clientId, message });
+        console.log('Sending server message:', { clientId, message, isModerator });
         
+        // Double check that we have a valid clientId and moderator status
+        if (!clientId) {
+            alert('Not connected to server. Please refresh and try again.');
+            return;
+        }
+        
+        if (!isModerator) {
+            alert('You are not a moderator. Cannot send server messages.');
+            return;
+        }
+
         try {
             const response = await fetch(`${SERVER_URL}/api/server-message`, {
                 method: 'POST',
@@ -283,7 +294,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Server error response:', errorText);
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                
+                if (response.status === 403) {
+                    alert('You are no longer a moderator. Please refresh the page.');
+                } else if (response.status === 400) {
+                    alert('Invalid request. Please check your connection and try again.');
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                return;
             }
             
             const data = await response.json();
