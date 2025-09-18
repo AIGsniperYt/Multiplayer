@@ -535,8 +535,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 addSystemMessage(`Moderator ${modUsername} has joined`); 
                 break;
             case 'receive_message': 
-                const decryptedUsername = await decryptText(data.username);
-                const decryptedMessage = await decryptText(data.message);
+                // Server messages don't need decryption
+                let decryptedUsername, decryptedMessage;
+                
+                if (data.username === "SERVER") {
+                    decryptedUsername = "SERVER";
+                    decryptedMessage = data.message; // Server messages aren't encrypted
+                } else {
+                    decryptedUsername = await decryptText(data.username);
+                    decryptedMessage = await decryptText(data.message);
+                }
+                
                 // Store in global messages
                 globalMessages.push(data);
                 addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id, false); 
@@ -602,6 +611,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     messageEl.remove();
                     addSystemMessage('A message was deleted by a moderator');
                 }
+                break;
+            case 'messages_cleared':
+                // Clear all messages from UI
+                messagesContainer.innerHTML = '';
+                globalMessages = [];
+                // No system message (silent cleanup)
                 break;
         }
     }
