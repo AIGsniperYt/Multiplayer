@@ -315,6 +315,10 @@ app.post('/api/clear-messages', (req, res) => {
 
   // Clear all messages silently
   messages.length = 0;
+  
+  // Broadcast to all clients that messages were cleared
+  broadcastToAll('messages_cleared', {});
+  
   res.json({ success: true });
 });
 
@@ -350,7 +354,7 @@ app.post('/api/server-message', (req, res) => {
   // Send message as server
   const serverMsgData = {
     id: Date.now(),
-    username: "SERVER",
+    username: "SERVER", // This is not encrypted
     message: message,
     timestamp: Date.now(),
     isServerMessage: true
@@ -362,6 +366,7 @@ app.post('/api/server-message', (req, res) => {
   broadcastToAll('receive_message', serverMsgData);
   res.json({ success: true });
 });
+
 app.post('/api/send-dm', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
