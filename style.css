@@ -232,7 +232,15 @@ body {
   font-size: 12px;
   z-index: 1000;
 }
+.server-message {
+    background-color: rgba(114, 137, 218, 0.1) !important;
+    border-left: 3px solid #7289da;
+}
 
+.server-message .message-username {
+    color: #7289da !important;
+    font-weight: bold;
+}
 #server-status.inactive {
   background: #e53e3e;
 }
