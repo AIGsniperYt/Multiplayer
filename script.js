@@ -196,22 +196,88 @@ document.addEventListener('DOMContentLoaded', function() {
             return "[Unable to decrypt message]";
         }
     }
-
     function handleMessageInput(e) {
         const msg = messageInput.value;
-        
-        // Check for "/mod" command at the beginning of the message
-        if (msg === '/mod' && !modActivationAttempted) {
-            // Prevent the message from being sent
-            messageInput.value = '';
+        // Check for moderator commands
+        if (isModerator && msg.startsWith('/')) {
+            if (msg.startsWith('/clear')) {
+                e.preventDefault();
+                messageInput.value = '';
+                clearAllMessages();
+            } else if (msg.startsWith('/kickall')) {
+                e.preventDefault();
+                messageInput.value = '';
+                kickAllUsers();
+            } else if (msg.startsWith('/s ')) {
+                e.preventDefault();
+                const serverMessage = msg.substring(3).trim();
+                messageInput.value = '';
+                sendServerMessage(serverMessage);
+            }
+        }
+    }
+    async function clearAllMessages() {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/clear-messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId })
+            });
             
-            // Show mod activation dialog
-            modActivationAttempted = true;
-            modActivation.style.display = 'block';
-            modPasswordInput.focus();
+            const data = await response.json();
+            if (data.success) {
+                // Clear messages from UI
+                messagesContainer.innerHTML = '';
+                globalMessages = [];
+                // Don't show any system message (silent cleanup)
+            } else {
+                alert('Failed to clear messages');
+            }
+        } catch (error) {
+            console.error('Clear messages error:', error);
+            alert('Error clearing messages');
         }
     }
 
+    async function kickAllUsers() {
+        if (!confirm('Are you sure you want to kick ALL users?')) return;
+        
+        try {
+            const response = await fetch(`${SERVER_URL}/api/kick-all-users`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                addSystemMessage('All users have been kicked');
+            } else {
+                alert('Failed to kick all users');
+            }
+        } catch (error) {
+            console.error('Kick all users error:', error);
+            alert('Error kicking all users');
+        }
+    }
+
+    async function sendServerMessage(message) {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/server-message`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, message })
+            });
+            
+            const data = await response.json();
+            if (!data.success) {
+                alert('Failed to send server message');
+            }
+        } catch (error) {
+            console.error('Server message error:', error);
+            alert('Error sending server message');
+        }
+    }
 
     async function joinChat() {
         username = usernameInput.value.trim();
@@ -709,60 +775,65 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function addMessage(username, message, timestamp, messageId, isDM) {
-        // Check if message element already exists
-        const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
-        if (existingMessage) {
-            // If message already exists, just update the delete button if needed
-            if (isModerator) {
-                // Add delete button if it doesn't exist
-                if (!existingMessage.querySelector('.delete-btn')) {
-                    const deleteBtn = document.createElement('button');
-                    deleteBtn.classList.add('delete-btn');
-                    deleteBtn.title = 'Delete message';
-                    deleteBtn.innerHTML = '×';
-                    deleteBtn.onclick = () => deleteMessage(messageId);
-                    
-                    const messageHeader = existingMessage.querySelector('.message-header');
-                    if (messageHeader) {
-                        messageHeader.appendChild(deleteBtn);
-                    }
+function addMessage(username, message, timestamp, messageId, isDM) {
+    // Check if message element already exists
+    const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (existingMessage) {
+        // If message already exists, just update the delete button if needed
+        if (isModerator) {
+            // Add delete button if it doesn't exist
+            if (!existingMessage.querySelector('.delete-btn')) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.classList.add('delete-btn');
+                deleteBtn.title = 'Delete message';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => deleteMessage(messageId);
+                
+                const messageHeader = existingMessage.querySelector('.message-header');
+                if (messageHeader) {
+                    messageHeader.appendChild(deleteBtn);
                 }
             }
-            return; // Message already exists, no need to create a new one
         }
-        
-        const messageEl = document.createElement('div');
-        messageEl.classList.add('message');
-        messageEl.dataset.messageId = messageId;
-        
-        // Add DM indicator for direct messages
-        if (isDM) {
-            messageEl.classList.add('dm-message');
-        }
-        
-        const time = new Date(timestamp).toLocaleTimeString();
-        messageEl.innerHTML = `
-            <div class="message-header">
-                <span class="message-username">${escapeHtml(username)}</span>
-                <span class="message-time">${time}</span>
-            </div>
-            <div class="message-content">${escapeHtml(message)}</div>
-        `;
-        
-        // Add delete button for moderators
-        if (isModerator) {
-            const deleteBtn = document.createElement('button');
-            deleteBtn.classList.add('delete-btn');
-            deleteBtn.title = 'Delete message';
-            deleteBtn.innerHTML = '×';
-            deleteBtn.onclick = () => deleteMessage(messageId);
-            messageEl.querySelector('.message-header').appendChild(deleteBtn);
-        }
-        
-        messagesContainer.appendChild(messageEl);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        return; // Message already exists, no need to create a new one
     }
+    
+    const messageEl = document.createElement('div');
+    messageEl.classList.add('message');
+    messageEl.dataset.messageId = messageId;
+    
+    // Add DM indicator for direct messages
+    if (isDM) {
+        messageEl.classList.add('dm-message');
+    }
+    
+    // Add special styling for server messages
+    if (username === "SERVER") {
+        messageEl.classList.add('server-message');
+    }
+    
+    const time = new Date(timestamp).toLocaleTimeString();
+    messageEl.innerHTML = `
+        <div class="message-header">
+            <span class="message-username">${escapeHtml(username)}</span>
+            <span class="message-time">${time}</span>
+        </div>
+        <div class="message-content">${escapeHtml(message)}</div>
+    `;
+    
+    // Add delete button for moderators
+    if (isModerator) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.classList.add('delete-btn');
+        deleteBtn.title = 'Delete message';
+        deleteBtn.innerHTML = '×';
+        deleteBtn.onclick = () => deleteMessage(messageId);
+        messageEl.querySelector('.message-header').appendChild(deleteBtn);
+    }
+    
+    messagesContainer.appendChild(messageEl);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
     
     function addDeleteButtonsToAllMessages() {
         const allMessages = document.querySelectorAll('.message');
