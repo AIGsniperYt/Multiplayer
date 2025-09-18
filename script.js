@@ -485,9 +485,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 break;
             case 'kicked':
-                addSystemMessage('You have been kicked from the chat.');
+                addSystemMessage('You have been kicked from the chat. Closing tab in 2 seconds...');
                 setTimeout(() => {
-                    window.location.reload();
+                    window.close(); // This will attempt to close the tab
                 }, 2000);
                 break;
             case 'message_deleted':
