@@ -305,7 +305,63 @@ app.post('/api/delete-message', (req, res) => {
   }
   res.status(404).json({ error: 'Message not found' });
 });
+app.post('/api/clear-messages', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
+  const { clientId } = req.body;
+  if (!clientId) return res.status(400).json({ error: 'Missing parameters' });
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  // Clear all messages silently
+  messages.length = 0;
+  res.json({ success: true });
+});
+
+app.post('/api/kick-all-users', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId } = req.body;
+  if (!clientId) return res.status(400).json({ error: 'Missing parameters' });
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  // Kick all users except the moderator
+  users.forEach((user, userId) => {
+    if (userId !== clientId) {
+      broadcastToClient(userId, 'kicked', {});
+      users.delete(userId);
+      longPollingClients.delete(userId);
+    }
+  });
+
+  broadcastUsersList();
+  res.json({ success: true });
+});
+
+app.post('/api/server-message', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, message } = req.body;
+  if (!clientId || !message) return res.status(400).json({ error: 'Missing parameters' });
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  // Send message as server
+  const serverMsgData = {
+    id: Date.now(),
+    username: "SERVER",
+    message: message,
+    timestamp: Date.now(),
+    isServerMessage: true
+  };
+  
+  messages.push(serverMsgData);
+  if (messages.length > 100) messages.shift();
+  
+  broadcastToAll('receive_message', serverMsgData);
+  res.json({ success: true });
+});
 app.post('/api/send-dm', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
