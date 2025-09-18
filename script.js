@@ -198,6 +198,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     function handleMessageInput(e) {
         const msg = messageInput.value;
+        
         // Check for moderator commands
         if (isModerator && msg.startsWith('/')) {
             if (msg.startsWith('/clear')) {
@@ -209,14 +210,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 messageInput.value = '';
                 kickAllUsers();
             } else if (msg.startsWith('/s ')) {
-                e.preventDefault();
-                const serverMessage = msg.substring(3).trim();
-                if (serverMessage) {
-                    messageInput.value = '';
-                    sendServerMessage(serverMessage);
-                } else {
-                    addSystemMessage('Server message cannot be empty');
-                }
+                // Don't prevent default here - let the Enter key send the message
+                // We'll handle this in the sendMessage function instead
             }
         }
     }
@@ -468,7 +463,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const msg = messageInput.value.trim();
         if (!msg) return;
         
-        // Encrypt the message before sending
+        // Check if this is a server message command
+        if (isModerator && msg.startsWith('/s ')) {
+            const serverMessage = msg.substring(3).trim();
+            if (serverMessage) {
+                messageInput.value = '';
+                sendServerMessage(serverMessage);
+            } else {
+                addSystemMessage('Server message cannot be empty');
+            }
+            return;
+        }
+        
+        // Encrypt the message before sending for normal messages
         let encryptedMessage = msg;
         if (cryptoKey) {
             encryptedMessage = "ENCRYPTED:" + await encryptText(msg);
