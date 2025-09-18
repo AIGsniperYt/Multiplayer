@@ -74,12 +74,15 @@ let isServerActive = false;
 let activeModerator = null;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
 const SERVER_TIMEOUT = 120000; // 2 minutes
+const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
+const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
+const MOD_CHECK_INTERVAL = 10000; // check every 10s
 
 setInterval(() => {
   if (isServerActive && activeModerator) {
     const mod = users.get(activeModerator);
-    if (!mod || Date.now() - mod.lastCheck > 30000) {
-      console.log("Moderator disconnected - deactivating server");
+    if (!mod || Date.now() - (mod.lastCheck || 0) > MOD_TIMEOUT) {
+      console.log("Moderator timed out - deactivating server");
       deactivateServer();
     }
   } else if (isServerActive && !activeModerator) {
@@ -90,7 +93,7 @@ setInterval(() => {
       }
     }, SERVER_TIMEOUT);
   }
-}, 30000);
+}, MOD_CHECK_INTERVAL);
 
 function activateServer(modClientId) {
   isServerActive = true;
@@ -363,13 +366,19 @@ function broadcastUsersList() {
 setInterval(() => {
   const now = Date.now();
   longPollingClients.forEach((client, clientId) => {
-    if (now - client.lastCheck > 30000) {
+    if (now - (client.lastCheck || 0) > CLIENT_TIMEOUT) {
       if (client.res && !client.res.finished) {
         try { client.res.json({ events: [], timestamp: now }); } catch {}
       }
       longPollingClients.delete(clientId);
+
       const user = users.get(clientId);
       if (user) {
+        // Don't auto-delete moderator accounts here
+        if (user.isMod) {
+          console.log(`Skipping cleanup for moderator: ${user.username} (clientId: ${clientId})`);
+          return;
+        }
         users.delete(clientId);
         console.log(`User cleaned up due to inactivity: ${user.username} (clientId: ${clientId})`);
         broadcastToAll('user_left', user.username);
