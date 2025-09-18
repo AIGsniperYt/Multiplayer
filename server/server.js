@@ -347,9 +347,20 @@ app.post('/api/server-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
   const { clientId, message } = req.body;
-  if (!clientId || !message) return res.status(400).json({ error: 'Missing parameters' });
+  
+  // Add debug logging
+  console.log('Server message request received:', { clientId, message });
+  
+  if (!clientId || !message) {
+    console.log('Missing parameters:', { clientId, message });
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+  
   const moderator = users.get(clientId);
-  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+  if (!moderator || !moderator.isMod) {
+    console.log('Not a moderator:', { clientId, userExists: !!moderator, isMod: moderator?.isMod });
+    return res.status(403).json({ error: 'Not a moderator' });
+  }
 
   // Send message as server
   const serverMsgData = {
