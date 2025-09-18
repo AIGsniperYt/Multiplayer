@@ -211,8 +211,12 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (msg.startsWith('/s ')) {
                 e.preventDefault();
                 const serverMessage = msg.substring(3).trim();
-                messageInput.value = '';
-                sendServerMessage(serverMessage);
+                if (serverMessage) {
+                    messageInput.value = '';
+                    sendServerMessage(serverMessage);
+                } else {
+                    addSystemMessage('Server message cannot be empty');
+                }
             }
         }
     }
@@ -262,20 +266,35 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function sendServerMessage(message) {
+        console.log('Sending server message:', { clientId, message });
+        
         try {
             const response = await fetch(`${SERVER_URL}/api/server-message`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, message })
+                body: JSON.stringify({ 
+                    clientId: clientId, 
+                    message: message 
+                })
             });
             
+            console.log('Server response status:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Server error response:', errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
             const data = await response.json();
+            console.log('Server response data:', data);
+            
             if (!data.success) {
-                alert('Failed to send server message');
+                alert('Failed to send server message: ' + (data.error || 'Unknown error'));
             }
         } catch (error) {
             console.error('Server message error:', error);
-            alert('Error sending server message');
+            alert('Error sending server message: ' + error.message);
         }
     }
 
