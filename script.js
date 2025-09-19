@@ -548,7 +548,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // NEW: Update room list in sidebar
-    function updateRoomList() {
+    async function updateRoomList() {
         const channelsList = document.querySelector('.channels-list');
         const globalItem = document.querySelector('[data-channel="global"]');
         
@@ -559,8 +559,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Add DM rooms
-        userRooms.forEach(room => {
+        for (const room of userRooms) {
             if (room.isDM) {
+                // Decrypt the room name (which contains usernames)
+                let decryptedRoomName = room.name;
+                if (room.name.startsWith('DM: ')) {
+                    const usernamesPart = room.name.substring(4);
+                    const usernames = usernamesPart.split(' & ');
+                    
+                    try {
+                        const decryptedUsernames = await Promise.all(
+                            usernames.map(async username => await decryptText(username))
+                        );
+                        decryptedRoomName = `DM: ${decryptedUsernames.join(' & ')}`;
+                    } catch (error) {
+                        console.error('Error decrypting room name:', error);
+                        // Use the original name if decryption fails
+                    }
+                }
+                
                 // Create the channel item if it doesn't exist
                 let dmChannelItem = document.querySelector(`[data-channel="${room.id}"]`);
                 
@@ -571,19 +588,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     dmChannelItem.dataset.isDm = 'true';
                     dmChannelItem.innerHTML = `
                         <span class="channel-icon">@</span>
-                        <span class="channel-name">${room.name.replace('DM: ', '')}</span>
+                        <span class="channel-name">${decryptedRoomName.replace('DM: ', '')}</span>
                     `;
                     
                     dmChannelItem.addEventListener('click', () => {
-                        switchRoom(room.id, room.name, true);
+                        switchChannel(room.id, decryptedRoomName, true);
                     });
                     
                     if (dmChannels) {
                         dmChannels.appendChild(dmChannelItem);
                     }
+                } else {
+                    // Update existing channel name if needed
+                    const nameElement = dmChannelItem.querySelector('.channel-name');
+                    if (nameElement) {
+                        nameElement.textContent = decryptedRoomName.replace('DM: ', '');
+                    }
                 }
             }
-        });
+        }
     }
     async function activateServer() {
     const password = serverPasswordInput.value;
@@ -917,8 +940,52 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Channel switching function
-    function switchRoom(roomId, roomName, isDM = false) {
-        joinRoom(roomId, roomName, isDM);
+    async function switchChannel(roomId, roomName, isDM = false) {
+        try {
+            // Update UI to show we're switching channels
+            document.getElementById('current-channel').textContent = roomName;
+            
+            // Update active channel in UI
+            document.querySelectorAll('.channel-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            const channelElement = document.querySelector(`[data-channel="${roomId}"]`);
+            if (channelElement) {
+                channelElement.classList.add('active');
+                channelElement.classList.remove('has-notification');
+            }
+            
+            // Clear messages and load room messages
+            const messagesContainer = document.getElementById('messages');
+            messagesContainer.innerHTML = '';
+            
+            // Get messages for this room from the server
+            const response = await fetch(`${SERVER_URL}/api/join-room`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, roomId })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                currentRoom = roomId;
+                
+                // Display messages for this room
+                for (const m of data.messages) {
+                    const decryptedUsername = await decryptText(m.username);
+                    const decryptedMessage = await decryptText(m.message);
+                    addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, isDM);
+                }
+                
+                // Update user list for this room
+                updateUserList(data.users);
+                document.getElementById('users-online').textContent = `${data.users.length} users online`;
+            }
+        } catch (error) {
+            console.error('Switch channel error:', error);
+            addSystemMessage('Error switching channel');
+        }
     }
     
     // Function to create a DM channel
@@ -948,65 +1015,77 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-function addMessage(username, message, timestamp, messageId, isDM) {
-    // Check if message element already exists
-    const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (existingMessage) {
-        // If message already exists, just update the delete button if needed
-        if (isModerator) {
-            // Add delete button if it doesn't exist
-            if (!existingMessage.querySelector('.delete-btn')) {
-                const deleteBtn = document.createElement('button');
-                deleteBtn.classList.add('delete-btn');
-                deleteBtn.title = 'Delete message';
-                deleteBtn.innerHTML = '×';
-                deleteBtn.onclick = () => deleteMessage(messageId);
-                
-                const messageHeader = existingMessage.querySelector('.message-header');
-                if (messageHeader) {
-                    messageHeader.appendChild(deleteBtn);
+    function addMessage(username, message, timestamp, messageId, isDM, roomId = currentRoom) {
+        // Don't add messages that aren't for the current room
+        if (roomId !== currentRoom) {
+            // If this message is for a different room, mark that room as having notifications
+            if (roomId) {
+                const channelElement = document.querySelector(`[data-channel="${roomId}"]`);
+                if (channelElement && !channelElement.classList.contains('active')) {
+                    channelElement.classList.add('has-notification');
                 }
             }
+            return; // Skip adding this message to the current view
         }
-        return; // Message already exists, no need to create a new one
+        
+        // Check if message element already exists
+        const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (existingMessage) {
+            // If message already exists, just update the delete button if needed
+            if (isModerator) {
+                // Add delete button if it doesn't exist
+                if (!existingMessage.querySelector('.delete-btn')) {
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.classList.add('delete-btn');
+                    deleteBtn.title = 'Delete message';
+                    deleteBtn.innerHTML = '×';
+                    deleteBtn.onclick = () => deleteMessage(messageId);
+                    
+                    const messageHeader = existingMessage.querySelector('.message-header');
+                    if (messageHeader) {
+                        messageHeader.appendChild(deleteBtn);
+                    }
+                }
+            }
+            return; // Message already exists, no need to create a new one
+        }
+        
+        const messageEl = document.createElement('div');
+        messageEl.classList.add('message');
+        messageEl.dataset.messageId = messageId;
+        
+        // Add DM indicator for direct messages
+        if (isDM) {
+            messageEl.classList.add('dm-message');
+        }
+        
+        // Add special styling for server messages
+        if (username === "SERVER") {
+            messageEl.classList.add('server-message');
+        }
+        
+        const time = new Date(timestamp).toLocaleTimeString();
+        messageEl.innerHTML = `
+            <div class="message-header">
+                <span class="message-username">${escapeHtml(username)}</span>
+                <span class="message-time">${time}</span>
+            </div>
+            <div class="message-content">${escapeHtml(message)}</div>
+        `;
+        
+        // Add delete button for moderators
+        if (isModerator) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.classList.add('delete-btn');
+            deleteBtn.title = 'Delete message';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.onclick = () => deleteMessage(messageId);
+            messageEl.querySelector('.message-header').appendChild(deleteBtn);
+        }
+        
+        messagesContainer.appendChild(messageEl);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-    
-    const messageEl = document.createElement('div');
-    messageEl.classList.add('message');
-    messageEl.dataset.messageId = messageId;
-    
-    // Add DM indicator for direct messages
-    if (isDM) {
-        messageEl.classList.add('dm-message');
-    }
-    
-    // Add special styling for server messages
-    if (username === "SERVER") {
-        messageEl.classList.add('server-message');
-    }
-    
-    const time = new Date(timestamp).toLocaleTimeString();
-    messageEl.innerHTML = `
-        <div class="message-header">
-            <span class="message-username">${escapeHtml(username)}</span>
-            <span class="message-time">${time}</span>
-        </div>
-        <div class="message-content">${escapeHtml(message)}</div>
-    `;
-    
-    // Add delete button for moderators
-    if (isModerator) {
-        const deleteBtn = document.createElement('button');
-        deleteBtn.classList.add('delete-btn');
-        deleteBtn.title = 'Delete message';
-        deleteBtn.innerHTML = '×';
-        deleteBtn.onclick = () => deleteMessage(messageId);
-        messageEl.querySelector('.message-header').appendChild(deleteBtn);
-    }
-    
-    messagesContainer.appendChild(messageEl);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
     
     function addDeleteButtonsToAllMessages() {
         const allMessages = document.querySelectorAll('.message');
@@ -1041,12 +1120,4 @@ function addMessage(username, message, timestamp, messageId, isDM) {
         div.textContent = text;
         return div.innerHTML;
     }
-});
-// Add global error handling
-window.addEventListener('error', function(e) {
-    console.error('Global error:', e.error);
-});
-
-window.addEventListener('unhandledrejection', function(e) {
-    console.error('Unhandled promise rejection:', e.reason);
 });
