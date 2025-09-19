@@ -654,12 +654,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         .catch(err => console.error('Error fetching users:', err));
                 }
                 break;
-            case 'kicked':
-                addSystemMessage('You have been kicked from the chat. Closing tab in 2 seconds...');
+            case "kicked":
+                addSystemMessage("You have been kicked from the chat.");
                 setTimeout(() => {
-                    window.close(); // This will attempt to close the tab
-                }, 2000);
+                    window.location.href = "kicked.html"; // redirect
+                }, 1500);
                 break;
+
             case 'message_deleted':
                 // Find and remove the message from UI
                 const messageEl = document.querySelector(`[data-message-id="${data}"]`);
