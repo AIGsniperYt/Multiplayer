@@ -321,6 +321,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const statusResponse = await fetch(`${SERVER_URL}/api/status`);
             const statusData = await statusResponse.json();
             
+            // Show server status to all users regardless of activation state
+            updateServerStatusDisplay(statusData.active);
+            
             if (!statusData.active) {
                 showServerActivation();
                 return;
@@ -331,7 +334,21 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Status check error:', error);
             addSystemMessage("Unable to connect to server");
+            // Show server as inactive on error
+            updateServerStatusDisplay(false);
             return;
+        }
+    }
+
+    // Add function to update server status display for all users
+    function updateServerStatusDisplay(isActive) {
+        serverStatus.style.display = 'block';
+        if (isActive) {
+            serverStatus.textContent = 'Server Active';
+            serverStatus.style.background = '#48bb78';
+        } else {
+            serverStatus.textContent = 'Server Inactive';
+            serverStatus.style.background = '#e53e3e';
         }
     }
     // Extract the joining logic from joinChat into a separate function
@@ -432,9 +449,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const data = await response.json();
         if (data.success) {
         serverActivation.style.display = 'none';
-        serverStatus.style.display = 'block';
-        serverStatus.textContent = 'Server Active';
-        serverStatus.style.background = '#48bb78';
+        updateServerStatusDisplay(true); // Use the new function
         
         // If we got a clientId, store it and proceed with join
         if (data.clientId) {
@@ -553,15 +568,11 @@ document.addEventListener('DOMContentLoaded', function() {
     async function handleServerEvent(event, data) {
         switch (event) {
             case 'server_activated':
-                serverStatus.style.display = 'block';
-                serverStatus.textContent = 'Server Active';
-                serverStatus.style.background = '#48bb78';
+                updateServerStatusDisplay(true); // Use the new function
                 addSystemMessage('Server has been activated');
                 break;
             case 'server_deactivated':
-                serverStatus.style.display = 'block';
-                serverStatus.textContent = 'Server Inactive';
-                serverStatus.style.background = '#e53e3e';
+                updateServerStatusDisplay(false); // Use the new function
                 addSystemMessage('Server has been deactivated. Please refresh.');
                 // Disable chat functionality
                 messageInput.disabled = true;
