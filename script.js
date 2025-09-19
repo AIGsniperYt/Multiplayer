@@ -322,7 +322,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // First check server status
         try {
-            const statusResponse = await fetch(`${SERVER_URL}/api/status`);
+            const statusResponse = await fetch(`${SERVER_URL}/api/status`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!statusResponse.ok) {
+                throw new Error(`Server returned ${statusResponse.status}`);
+            }
+            
             const statusData = await statusResponse.json();
             
             // Show server status to all users regardless of activation state
@@ -337,7 +347,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (error) {
             console.error('Status check error:', error);
-            addSystemMessage("Unable to connect to server");
+            addSystemMessage("Unable to connect to server. Server may be offline.");
             // Show server as inactive on error
             updateServerStatusDisplay(false);
             return;
@@ -502,18 +512,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentRoom = roomId;
                 document.getElementById('current-channel').textContent = roomName;
                 
-                // Update active room in UI
+                // Update active room in UI - safely
                 document.querySelectorAll('.channel-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                document.querySelector(`[data-channel="${roomId}"]`).classList.add('active');
                 
-                // Clear notification if any
-                document.querySelector(`[data-channel="${roomId}"]`).classList.remove('has-notification');
+                // Find the channel element or create it if it doesn't exist
+                let channelElement = document.querySelector(`[data-channel="${roomId}"]`);
+                if (channelElement) {
+                    channelElement.classList.add('active');
+                    channelElement.classList.remove('has-notification');
+                }
                 
                 // Clear messages and load room messages
                 const messagesContainer = document.getElementById('messages');
-                messagesContainer.innerHTML = '';
+                if (messagesContainer) {
+                    messagesContainer.innerHTML = '';
+                }
                 
                 for (const m of data.messages) {
                     const decryptedUsername = await decryptText(m.username);
@@ -523,39 +538,50 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Update user list for this room
                 updateUserList(data.users);
-                document.getElementById('users-online').textContent = `${data.users.length} users online`;
+                if (document.getElementById('users-online')) {
+                    document.getElementById('users-online').textContent = `${data.users.length} users online`;
+                }
             }
         } catch (error) {
             console.error('Join room error:', error);
         }
     }
 
-        // NEW: Update room list in sidebar
+    // NEW: Update room list in sidebar
     function updateRoomList() {
         const channelsList = document.querySelector('.channels-list');
         const globalItem = document.querySelector('[data-channel="global"]');
         
         // Clear existing DM channels (keep global)
         const dmChannels = document.getElementById('dm-channels');
-        dmChannels.innerHTML = '';
+        if (dmChannels) {
+            dmChannels.innerHTML = '';
+        }
         
         // Add DM rooms
         userRooms.forEach(room => {
             if (room.isDM) {
-                const dmChannelItem = document.createElement('div');
-                dmChannelItem.classList.add('channel-item', 'dm-channel');
-                dmChannelItem.dataset.channel = room.id;
-                dmChannelItem.dataset.isDm = 'true';
-                dmChannelItem.innerHTML = `
-                    <span class="channel-icon">@</span>
-                    <span class="channel-name">${room.name.replace('DM: ', '')}</span>
-                `;
+                // Create the channel item if it doesn't exist
+                let dmChannelItem = document.querySelector(`[data-channel="${room.id}"]`);
                 
-                dmChannelItem.addEventListener('click', () => {
-                    switchRoom(room.id, room.name, true);
-                });
-                
-                dmChannels.appendChild(dmChannelItem);
+                if (!dmChannelItem) {
+                    dmChannelItem = document.createElement('div');
+                    dmChannelItem.classList.add('channel-item', 'dm-channel');
+                    dmChannelItem.dataset.channel = room.id;
+                    dmChannelItem.dataset.isDm = 'true';
+                    dmChannelItem.innerHTML = `
+                        <span class="channel-icon">@</span>
+                        <span class="channel-name">${room.name.replace('DM: ', '')}</span>
+                    `;
+                    
+                    dmChannelItem.addEventListener('click', () => {
+                        switchRoom(room.id, room.name, true);
+                    });
+                    
+                    if (dmChannels) {
+                        dmChannels.appendChild(dmChannelItem);
+                    }
+                }
             }
         });
     }
@@ -650,18 +676,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function fetchUpdates() {
-        fetch(`${SERVER_URL}/api/get-updates`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId, lastUpdate: lastUpdateTime })
-        })
-        .then(res => {
-            if (!res.ok) {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/get-updates`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, lastUpdate: lastUpdateTime })
+            });
+            
+            if (!response.ok) {
+                if (response.status === 403) {
+                    // Server not active or user not found
+                    addSystemMessage("Disconnected from server. Please refresh.");
+                    return;
+                }
                 throw new Error('Server error');
             }
-            return res.json();
-        })
-        .then(async data => {
+            
+            const data = await response.json();
             if (data.events?.length) {
                 for (const e of data.events) {
                     await handleServerEvent(e.event, e.data);
@@ -669,27 +700,29 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             lastUpdateTime = data.timestamp || Date.now();
             fetchUpdates(); // immediately open next poll
-        })
-        .catch(err => {
+        } catch (err) {
             console.error('Polling error:', err);
-            // If we get a 404, the server doesn't know about us anymore
-            if (err.message.includes('404') || err.message.includes('User not found')) {
-                addSystemMessage("Disconnected from server. Please refresh to reconnect.");
-                return;
-            }
-            setTimeout(fetchUpdates, 2000); // retry after 2s on error
-        });
+            // If we get a network error, retry after delay
+            setTimeout(fetchUpdates, 5000); // retry after 5s on error
+        }
     }
 
     function startUserListRefresh() {
-        setInterval(() => {
+        setInterval(async () => {
             if (clientId) {
-                fetch(`${SERVER_URL}/api/active-users`)
-                    .then(res => res.json())
-                    .then(data => updateUserList(data.users))
-                    .catch(err => console.error('Error fetching users:', err));
+                try {
+                    const response = await fetch(`${SERVER_URL}/api/active-users?roomId=${currentRoom}`);
+                    if (!response.ok) {
+                        console.error('Failed to fetch users:', response.status);
+                        return;
+                    }
+                    const data = await response.json();
+                    updateUserList(data.users);
+                } catch (err) {
+                    console.error('Error fetching users:', err);
+                }
             }
-        }, 10000); // Refresh every 10 seconds
+        }, 15000); // Refresh every 15 seconds (less frequent)
     }
     
     async function handleServerEvent(event, data) {
@@ -866,7 +899,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch(`${SERVER_URL}/api/delete-message`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, messageId })
+                body: JSON.stringify({ 
+                    clientId, 
+                    messageId,
+                    roomId: currentRoom // Add current room ID
+                })
             });
             
             const data = await response.json();
@@ -1004,4 +1041,12 @@ function addMessage(username, message, timestamp, messageId, isDM) {
         div.textContent = text;
         return div.innerHTML;
     }
+});
+// Add global error handling
+window.addEventListener('error', function(e) {
+    console.error('Global error:', e.error);
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('Unhandled promise rejection:', e.reason);
 });
