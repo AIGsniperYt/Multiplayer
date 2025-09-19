@@ -7,6 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // CORS at the very top
+// Replace the CORS section at the top with this:
 app.use(cors({
   origin: function (origin, callback) {
     // 1. Allow requests with no origin (like from mobile apps, Postman, or same-origin requests)
@@ -20,25 +21,25 @@ app.use(cors({
       "https://aigsniperyt.github.io", // Your GitHub Pages site
       "http://localhost:3000",         // Local React dev server
       "http://127.0.0.1:5500",         // Local Live Server (VS Code)
-      "http://localhost:5500"          // Another common Live Server port
+      "http://localhost:5500",         // Another common Live Server port
     ];
 
-    // 3. Check if the origin is in the allowed list
+    // 3. Check if the origin is in the allowed list or if it's a subdomain
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      // 4. Log the blocked origin for debugging (check your Render logs!)
+      // 4. Log the blocked origin for debugging
       console.log('🚫 CORS: BLOCKING request from origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
 
-// Handle preflight globally
-app.options("*", cors());
+// Add this after CORS setup to handle preflight requests
+app.options('*', cors());
 
 // JSON middleware
 app.use(express.json());
@@ -334,15 +335,19 @@ app.post('/api/kick-user', (req, res) => {
 app.post('/api/delete-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, messageId } = req.body;
-  if (!clientId || !messageId) return res.status(400).json({ error: 'Missing parameters' });
+  const { clientId, messageId, roomId } = req.body; // Added roomId
+  if (!clientId || !messageId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
   const moderator = users.get(clientId);
   if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
 
-  const messageIndex = messages.findIndex(m => m.id === messageId);
+  // Find the room and message
+  const room = rooms.get(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+
+  const messageIndex = room.messages.findIndex(m => m.id === messageId);
   if (messageIndex !== -1) {
-    messages.splice(messageIndex, 1);
-    broadcastToAll('message_deleted', messageId);
+    room.messages.splice(messageIndex, 1);
+    broadcastToRoom(roomId, 'message_deleted', messageId);
     return res.json({ success: true });
   }
   res.status(404).json({ error: 'Message not found' });
