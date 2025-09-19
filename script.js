@@ -342,7 +342,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add function to update server status display for all users
     function updateServerStatusDisplay(isActive) {
-        serverStatus.style.display = 'block';
         if (isActive) {
             serverStatus.textContent = 'Server Active';
             serverStatus.style.background = '#48bb78';
@@ -941,3 +940,4 @@ function addMessage(username, message, timestamp, messageId, isDM) {
         return div.innerHTML;
     }
 });
+
