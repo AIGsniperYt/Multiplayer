@@ -350,6 +350,7 @@ document.addEventListener('DOMContentLoaded', function() {
             serverStatus.style.background = '#e53e3e';
         }
     }
+    updateServerStatusDisplay(false);
     // Extract the joining logic from joinChat into a separate function
     async function proceedWithJoin() {
         // If we already became mod during activation, don’t call /api/join again
@@ -940,4 +941,3 @@ function addMessage(username, message, timestamp, messageId, isDM) {
         return div.innerHTML;
     }
 });
-
