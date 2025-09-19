@@ -236,7 +236,27 @@ body {
     background-color: rgba(114, 137, 218, 0.1) !important;
     border-left: 3px solid #7289da;
 }
+/* Add to the existing style.css file */
 
+/* Room notification indicator */
+.channel-item.has-notification::after {
+    content: "●";
+    color: #ed4245;
+    margin-left: 5px;
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* DM channel styling */
+.dm-channel {
+    padding-left: 20px !important;
+}
+
+/* Room creation loading state */
+.creating-room {
+    opacity: 0.7;
+    pointer-events: none;
+}
 .server-message .message-username {
     color: #7289da !important;
     font-weight: bold;
