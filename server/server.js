@@ -426,48 +426,85 @@ app.post('/api/server-message', (req, res) => {
   res.json({ success: true });
 });
 
-// NEW: Create DM room endpoint
+// In the create-dm-room endpoint, modify room naming:
 app.post('/api/create-dm-room', (req, res) => {
-  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+    if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, targetClientId } = req.body;
-  if (!clientId || !targetClientId) return res.status(400).json({ error: 'Missing parameters' });
-  
-  const user1 = users.get(clientId);
-  const user2 = users.get(targetClientId);
-  if (!user1 || !user2) return res.status(404).json({ error: 'User not found' });
+    const { clientId, targetClientId } = req.body;
+    if (!clientId || !targetClientId) return res.status(400).json({ error: 'Missing parameters' });
+    
+    const user1 = users.get(clientId);
+    const user2 = users.get(targetClientId);
+    if (!user1 || !user2) return res.status(404).json({ error: 'User not found' });
 
-  // Check if DM room already exists
-  const roomId = `dm_${[clientId, targetClientId].sort().join('_')}`;
-  
-  if (!rooms.has(roomId)) {
-    // Create new DM room
-    rooms.set(roomId, {
-      id: roomId,
-      name: `DM: ${user1.username} & ${user2.username}`,
-      users: new Set([clientId, targetClientId]),
-      isDM: true,
-      messages: []
+    // Check if DM room already exists
+    const roomId = `dm_${[clientId, targetClientId].sort().join('_')}`;
+    
+    if (!rooms.has(roomId)) {
+        // Create room name with both usernames for moderators, but store both for flexibility
+        const roomName = `DM: ${user1.username} & ${user2.username}`;
+        
+        rooms.set(roomId, {
+            id: roomId,
+            name: roomName,
+            users: new Set([clientId, targetClientId]),
+            isDM: true,
+            messages: [],
+            participantUsernames: [user1.username, user2.username] // Store both for reference
+        });
+        
+        // Add moderator to room if one exists and it's not a moderator-initiated DM
+        if (activeModerator && activeModerator !== clientId && activeModerator !== targetClientId) {
+            rooms.get(roomId).users.add(activeModerator);
+        }
+        
+        console.log(`Created DM room: ${roomId}`);
+        
+        // Notify all participants about the new room
+        broadcastToClient(clientId, 'room_created', { roomId, roomName });
+        broadcastToClient(targetClientId, 'room_created', { roomId, roomName });
+        
+        // Also notify moderator if they were added
+        if (activeModerator && rooms.get(roomId).users.has(activeModerator)) {
+            broadcastToClient(activeModerator, 'room_created', { roomId, roomName });
+        }
+    }
+    
+    // Return room info
+    const room = rooms.get(roomId);
+    res.json({ 
+        success: true, 
+        room: {
+            id: room.id,
+            name: room.name,
+            isDM: room.isDM,
+            participantUsernames: room.participantUsernames
+        }
     });
+});
+
+// Add this new endpoint for getting room display names
+app.get('/api/room-display-name', (req, res) => {
+    if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+    const { roomId, clientId } = req.query;
+    if (!roomId || !clientId) return res.status(400).json({ error: 'Missing parameters' });
     
-    // Add moderator to room if one exists
-    if (activeModerator) {
-      rooms.get(roomId).users.add(activeModerator);
-    }
+    const room = rooms.get(roomId);
+    const user = users.get(clientId);
     
-    console.log(`Created DM room: ${roomId}`);
-  }
-  
-  // Return room info
-  const room = rooms.get(roomId);
-  res.json({ 
-    success: true, 
-    room: {
-      id: room.id,
-      name: room.name,
-      isDM: room.isDM
+    if (!room || !user) return res.status(404).json({ error: 'Room or user not found' });
+    
+    if (room.isDM && room.participantUsernames) {
+        // For DMs, filter out the current user's name
+        const displayName = room.participantUsernames
+            .filter(username => username !== user.username)
+            .join(' & ');
+            
+        res.json({ displayName: displayName || room.participantUsernames.join(' & ') });
+    } else {
+        res.json({ displayName: room.name });
     }
-  });
 });
 
 // NEW: Join room endpoint
