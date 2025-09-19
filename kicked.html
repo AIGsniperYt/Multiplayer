@@ -1,24 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Kicked</title>
-  <style>
-    body {
-      display: flex; 
-      justify-content: center; 
-      align-items: center;
-      height: 100vh; 
-      background: #2f3136; 
-      color: #ed4245;
-      font-family: sans-serif;
-      flex-direction: column;
+<!doctypehtml><html lang="en"><meta charset="UTF-8"><meta content="width=device-width,initial-scale=1"name="viewport"><title>Kicked</title><style>*{margin:0;padding:0;box-sizing:border-box}body{display:flex;justify-content:center;align-items:center;min-height:100vh;background:linear-gradient(135deg,#2f3136 0,#1a1b1f 100%);color:#fff;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;flex-direction:column;text-align:center;padding:20px;overflow:hidden}.container{max-width:500px;padding:30px;background:rgba(40,42,46,.9);border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,.5);border:1px solid #ed4245;position:relative;overflow:hidden}.container::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:#ed4245}h1{font-size:2.5em;margin-bottom:15px;color:#ed4245;text-shadow:0 2px 10px rgba(237,66,69,.3)}p{color:#b9bbbe;font-size:1.1em;line-height:1.5;margin-bottom:25px}.countdown{font-size:1.2em;color:#ed4245;margin:20px 0;font-weight:700}.icon{font-size:4em;margin-bottom:20px;animation:pulse 1.5s infinite alternate}.contact-btn{background:#ed4245;color:#fff;border:none;padding:12px 24px;border-radius:50px;font-size:1em;cursor:pointer;transition:all .3s ease;margin-top:10px}.contact-btn:hover{background:#ff5356;transform:translateY(-2px);box-shadow:0 5px 15px rgba(237,66,69,.4)}@keyframes pulse{from{transform:scale(1);text-shadow:0 0 10px rgba(237,66,69,.5)}to{transform:scale(1.1);text-shadow:0 0 20px rgba(237,66,69,.8)}}.footer{margin-top:30px;color:#72767d;font-size:.9em}</style><div class="container"><div class="icon">🚫</div><h1>You were kicked</h1><div class="countdown"id="countdown">Closing in 2 seconds...</div></div><div class="footer"><p>This page will attempt to close automatically</div><script>// Countdown and close logic
+    const countdownEl = document.getElementById('countdown');
+    let secondsLeft = 2;
+    
+    function updateCountdown() {
+      countdownEl.textContent = `Closing in ${secondsLeft} second${secondsLeft !== 1 ? 's' : ''}...`;
+      secondsLeft--;
+      
+      if (secondsLeft < 0) {
+        try {
+          // Try to close the window
+          window.close();
+          
+          // Fallback in case the window doesn't close
+          setTimeout(() => {
+            window.location.href = 'about:blank';
+          }, 100);
+        } catch (e) {
+          // If closing fails, redirect to about:blank
+          window.location.href = 'about:blank';
+        }
+      }
     }
-    h1 { font-size: 2em; margin-bottom: 10px; }
-    p { color: #ccc; }
-  </style>
-</head>
-<body>
-  <h1>You were kicked</h1>
-</body>
-</html>
+    
+    // Initial update
+    updateCountdown();
+    
+    // Update countdown every second
+    const countdownInterval = setInterval(updateCountdown, 1000);
+    
+    
+    // Try to close when the page is loaded
+    window.onload = function() {
+      setTimeout(() => {
+        try {
+          window.close();
+        } catch (e) {
+          // If we can't close, do nothing - the countdown will handle it
+        }
+      }, 2000);
+    };</script>
