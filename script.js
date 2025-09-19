@@ -411,6 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             startPolling();
             startUserListRefresh();
+            startRoomListRefresh();
             return;
         }
 
@@ -547,67 +548,73 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // NEW: Update room list in sidebar
     async function updateRoomList() {
-        const channelsList = document.querySelector('.channels-list');
-        const globalItem = document.querySelector('[data-channel="global"]');
-        
-        // Clear existing DM channels (keep global)
         const dmChannels = document.getElementById('dm-channels');
-        if (dmChannels) {
-            dmChannels.innerHTML = '';
-        }
+        if (!dmChannels) return;
         
-        // Add DM rooms
+        dmChannels.innerHTML = '';
+        
         for (const room of userRooms) {
             if (room.isDM) {
-                // Decrypt the room name (which contains usernames)
-                let decryptedRoomName = room.name;
-                if (room.name.startsWith('DM: ')) {
-                    const usernamesPart = room.name.substring(4);
-                    const usernames = usernamesPart.split(' & ');
+                try {
+                    // Get appropriate display name from server
+                    const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
+                    const data = await response.json();
                     
-                    try {
-                        const decryptedUsernames = await Promise.all(
-                            usernames.map(async username => await decryptText(username))
-                        );
-                        decryptedRoomName = `DM: ${decryptedUsernames.join(' & ')}`;
-                    } catch (error) {
-                        console.error('Error decrypting room name:', error);
-                        // Use the original name if decryption fails
+                    let displayName = data.displayName;
+                    
+                    // Remove "DM: " prefix if present
+                    if (displayName.startsWith('DM: ')) {
+                        displayName = displayName.substring(4);
                     }
-                }
-                
-                // Create the channel item if it doesn't exist
-                let dmChannelItem = document.querySelector(`[data-channel="${room.id}"]`);
-                
-                if (!dmChannelItem) {
-                    dmChannelItem = document.createElement('div');
+                    
+                    const dmChannelItem = document.createElement('div');
                     dmChannelItem.classList.add('channel-item', 'dm-channel');
                     dmChannelItem.dataset.channel = room.id;
                     dmChannelItem.dataset.isDm = 'true';
                     dmChannelItem.innerHTML = `
                         <span class="channel-icon">@</span>
-                        <span class="channel-name">${decryptedRoomName.replace('DM: ', '')}</span>
+                        <span class="channel-name">${displayName}</span>
                     `;
                     
                     dmChannelItem.addEventListener('click', () => {
-                        switchChannel(room.id, decryptedRoomName, true);
+                        switchChannel(room.id, `DM: ${displayName}`, true);
                     });
                     
-                    if (dmChannels) {
-                        dmChannels.appendChild(dmChannelItem);
-                    }
-                } else {
-                    // Update existing channel name if needed
-                    const nameElement = dmChannelItem.querySelector('.channel-name');
-                    if (nameElement) {
-                        nameElement.textContent = decryptedRoomName.replace('DM: ', '');
-                    }
+                    dmChannels.appendChild(dmChannelItem);
+                    
+                } catch (error) {
+                    console.error('Error getting room display name:', error);
+                    // Fallback to basic display
+                    const fallbackName = room.name.replace('DM: ', '');
+                    const dmChannelItem = document.createElement('div');
+                    dmChannelItem.classList.add('channel-item', 'dm-channel');
+                    dmChannelItem.dataset.channel = room.id;
+                    dmChannelItem.dataset.isDm = 'true';
+                    dmChannelItem.innerHTML = `
+                        <span class="channel-icon">@</span>
+                        <span class="channel-name">${fallbackName}</span>
+                    `;
+                    
+                    dmChannelItem.addEventListener('click', () => {
+                        switchChannel(room.id, `DM: ${fallbackName}`, true);
+                    });
+                    
+                    dmChannels.appendChild(dmChannelItem);
                 }
             }
         }
     }
+
+    // Add this function to periodically refresh room list
+    function startRoomListRefresh() {
+        setInterval(async () => {
+            if (clientId) {
+                await loadUserRooms();
+            }
+        }, 3000); // Refresh every 3 seconds
+    }
+    
     async function activateServer() {
     const password = serverPasswordInput.value;
     if (!password) return;
@@ -745,7 +752,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.error('Error fetching users:', err);
                 }
             }
-        }, 15000); // Refresh every 15 seconds (less frequent)
+        }, 5000); 
     }
     
     async function handleServerEvent(event, data) {
@@ -786,6 +793,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     
                     addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id, data.roomId !== 'global'); 
+                } else {
+                    // Mark room as having notifications
+                    const channelElement = document.querySelector(`[data-channel="${data.roomId}"]`);
+                    if (channelElement && !channelElement.classList.contains('active')) {
+                        channelElement.classList.add('has-notification');
+                    }
                 }
                 break;
             case 'users_list': {
