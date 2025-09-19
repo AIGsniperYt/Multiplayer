@@ -68,6 +68,15 @@ app.use(express.static(path.join(__dirname, '..')));
 const longPollingClients = new Map();
 const users = new Map();
 const messages = [];
+const rooms = new Map(); // New: Room storage
+
+rooms.set('global', {
+  id: 'global',
+  name: 'Global Chat',
+  users: new Set(),
+  isDM: false,
+  messages: []
+});
 
 // === Server Activation System ===
 let isServerActive = false;
@@ -130,45 +139,59 @@ app.post('/api/join', (req, res) => {
   users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId, lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
+  // Add user to global room
+  const globalRoom = rooms.get('global');
+  globalRoom.users.add(clientId);
+
   console.log(`User joined: ${username} (clientId: ${clientId})`);
-  broadcastToAll('user_joined', username);
-  broadcastUsersList();
+  broadcastToRoom('global', 'user_joined', username);
+  broadcastUsersList('global');
 
   res.json({
     success: true,
     clientId,
-    messages: messages.slice(-20),
-    users: Array.from(users.values()).map(u => ({
+    messages: globalRoom.messages.slice(-20),
+    users: Array.from(users.values()).filter(u => globalRoom.users.has(u.clientId)).map(u => ({
       username: u.username,
       isMod: u.isMod,
       joinedAt: u.joinedAt,
       clientId: u.clientId
-    }))
+    })),
+    currentRoom: 'global'
   });
 });
 
 app.post('/api/send-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, message } = req.body;
-  if (!clientId || !message) return res.status(400).json({ error: 'Missing fields' });
+  const { clientId, message, roomId } = req.body; // Added roomId
+  if (!clientId || !message || !roomId) return res.status(400).json({ error: 'Missing fields' });
+  
   const user = users.get(clientId);
   if (!user) return res.status(404).json({ error: 'User not found' });
+  
+  // Check if user is in this room
+  const room = rooms.get(roomId);
+  if (!room || !room.users.has(clientId)) {
+    return res.status(403).json({ error: 'Not in this room' });
+  }
 
-  console.log(`Encrypted message from ${user.username}: ${message}`);
+  console.log(`Encrypted message from ${user.username} in room ${roomId}: ${message}`);
 
   const msgData = { 
     id: Date.now(), 
     username: user.username, 
     message,
     timestamp: Date.now(),
-    clientId: clientId
+    clientId: clientId,
+    roomId: roomId
   };
   
-  messages.push(msgData);
-  if (messages.length > 100) messages.shift();
+  // Store message in room
+  room.messages.push(msgData);
+  if (room.messages.length > 100) room.messages.shift();
   
-  broadcastToAll('receive_message', msgData);
+  broadcastToRoom(roomId, 'receive_message', msgData);
   res.json({ success: true });
 });
 
@@ -199,11 +222,19 @@ app.post('/api/leave', (req, res) => {
   const { clientId } = req.body;
   if (clientId && users.has(clientId)) {
     const user = users.get(clientId);
+    
+    // Remove user from all rooms
+    rooms.forEach(room => {
+      if (room.users.has(clientId)) {
+        room.users.delete(clientId);
+        broadcastToRoom(room.id, 'user_left', user.username);
+      }
+    });
+    
     users.delete(clientId);
     longPollingClients.delete(clientId);
     console.log(`User left via leave API: ${user.username} (clientId: ${clientId})`);
-    broadcastToAll('user_left', user.username);
-    broadcastUsersList();
+    broadcastUsersList('global'); // Update global user list
   }
   res.json({ success: true });
 });
@@ -256,12 +287,23 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/active-users', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
-  const activeUsers = Array.from(users.values()).map(u => ({
-    username: u.username,
-    isMod: u.isMod,
-    joinedAt: u.joinedAt,
-    clientId: u.clientId
-  }));
+  const roomId = req.query.roomId || 'global';
+  const room = rooms.get(roomId);
+  
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  
+  const activeUsers = Array.from(room.users)
+    .filter(clientId => users.has(clientId))
+    .map(clientId => {
+      const u = users.get(clientId);
+      return {
+        username: u.username,
+        isMod: u.isMod,
+        joinedAt: u.joinedAt,
+        clientId: u.clientId
+      };
+    });
+    
   res.json({ users: activeUsers });
 });
 
@@ -305,19 +347,20 @@ app.post('/api/delete-message', (req, res) => {
   }
   res.status(404).json({ error: 'Message not found' });
 });
+
 app.post('/api/clear-messages', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId } = req.body;
-  if (!clientId) return res.status(400).json({ error: 'Missing parameters' });
+  const { clientId, roomId } = req.body;
+  if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
   const moderator = users.get(clientId);
   if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
 
-  // Clear all messages silently
-  messages.length = 0;
-  
-  // Broadcast to all clients that messages were cleared
-  broadcastToAll('messages_cleared', {});
+  const room = rooms.get(roomId);
+  if (room) {
+    room.messages.length = 0;
+    broadcastToRoom(roomId, 'messages_cleared', {});
+  }
   
   res.json({ success: true });
 });
@@ -378,33 +421,117 @@ app.post('/api/server-message', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/send-dm', (req, res) => {
+// NEW: Create DM room endpoint
+app.post('/api/create-dm-room', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, targetClientId, message } = req.body;
-  if (!clientId || !targetClientId || !message) return res.status(400).json({ error: 'Missing fields' });
-  const sender = users.get(clientId);
-  const receiver = users.get(targetClientId);
-  if (!sender || !receiver) return res.status(404).json({ error: 'User not found' });
+  const { clientId, targetClientId } = req.body;
+  if (!clientId || !targetClientId) return res.status(400).json({ error: 'Missing parameters' });
+  
+  const user1 = users.get(clientId);
+  const user2 = users.get(targetClientId);
+  if (!user1 || !user2) return res.status(404).json({ error: 'User not found' });
 
-  console.log(`Encrypted DM from ${sender.username} to ${receiver.username}: ${message}`);
-
-  const dmData = { 
-    id: Date.now(), 
-    senderId: clientId,
-    senderUsername: sender.username,
-    receiverId: targetClientId,
-    receiverUsername: receiver.username,
-    message,
-    timestamp: Date.now(),
-    isDM: true
-  };
-  broadcastToClient(clientId, 'receive_dm', dmData);
-  broadcastToClient(targetClientId, 'receive_dm', dmData);
-  res.json({ success: true });
+  // Check if DM room already exists
+  const roomId = `dm_${[clientId, targetClientId].sort().join('_')}`;
+  
+  if (!rooms.has(roomId)) {
+    // Create new DM room
+    rooms.set(roomId, {
+      id: roomId,
+      name: `DM: ${user1.username} & ${user2.username}`,
+      users: new Set([clientId, targetClientId]),
+      isDM: true,
+      messages: []
+    });
+    
+    // Add moderator to room if one exists
+    if (activeModerator) {
+      rooms.get(roomId).users.add(activeModerator);
+    }
+    
+    console.log(`Created DM room: ${roomId}`);
+  }
+  
+  // Return room info
+  const room = rooms.get(roomId);
+  res.json({ 
+    success: true, 
+    room: {
+      id: room.id,
+      name: room.name,
+      isDM: room.isDM
+    }
+  });
 });
 
+// NEW: Join room endpoint
+app.post('/api/join-room', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, roomId } = req.body;
+  if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
+  
+  const user = users.get(clientId);
+  const room = rooms.get(roomId);
+  if (!user || !room) return res.status(404).json({ error: 'User or room not found' });
+  
+  // Add user to room
+  room.users.add(clientId);
+  
+  res.json({ 
+    success: true, 
+    messages: room.messages.slice(-20),
+    users: Array.from(room.users)
+      .filter(clientId => users.has(clientId))
+      .map(clientId => {
+        const u = users.get(clientId);
+        return {
+          username: u.username,
+          isMod: u.isMod,
+          joinedAt: u.joinedAt,
+          clientId: u.clientId
+        };
+      })
+  });
+});
+
+// NEW: Get user's rooms endpoint
+app.get('/api/user-rooms', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId } = req.query;
+  if (!clientId) return res.status(400).json({ error: 'Missing clientId' });
+  
+  const userRooms = [];
+  rooms.forEach(room => {
+    if (room.users.has(clientId)) {
+      userRooms.push({
+        id: room.id,
+        name: room.name,
+        isDM: room.isDM
+      });
+    }
+  });
+  
+  res.json({ rooms: userRooms });
+});
+
+
 // === Broadcast helpers ===
+function broadcastToRoom(roomId, event, data) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const ev = { event, data, timestamp: Date.now() };
+  room.users.forEach(clientId => {
+    const client = longPollingClients.get(clientId);
+    if (client && client.res && !client.res.finished) {
+      client.res.json({ events: [ev], timestamp: Date.now() });
+      longPollingClients.delete(clientId);
+    }
+  });
+}
 function broadcastToAll(event, data) {
   const ev = { event, data, timestamp: Date.now() };
   longPollingClients.forEach((client, id) => {
@@ -423,15 +550,24 @@ function broadcastToClient(clientId, event, data) {
   }
 }
 
-function broadcastUsersList() {
-  const list = Array.from(users.values()).map(u => ({ 
-    username: u.username, 
-    isMod: u.isMod,
-    joinedAt: u.joinedAt,
-    clientId: u.clientId
-  }));
-  console.log(`Broadcasting users list: ${JSON.stringify(list)}`);
-  broadcastToAll('users_list', list);
+function broadcastUsersList(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  
+  const list = Array.from(room.users)
+    .filter(clientId => users.has(clientId))
+    .map(clientId => {
+      const u = users.get(clientId);
+      return {
+        username: u.username, 
+        isMod: u.isMod,
+        joinedAt: u.joinedAt,
+        clientId: u.clientId
+      };
+    });
+    
+  console.log(`Broadcasting users list for room ${roomId}: ${JSON.stringify(list)}`);
+  broadcastToRoom(roomId, 'users_list', list);
 }
 
 // === Cleanup ===
