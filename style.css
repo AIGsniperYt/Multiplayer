@@ -251,7 +251,43 @@ body {
 .dm-channel {
     padding-left: 20px !important;
 }
+/* Add these styles for better channel notifications */
+.channel-item.has-notification {
+    position: relative;
+}
 
+.channel-item.has-notification::after {
+    content: "●";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #ed4245;
+    font-size: 14px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.dm-channel {
+    padding-left: 20px !important;
+    border-left: 2px solid #7289da;
+}
+
+/* Loading state for room creation */
+.creating-room {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.creating-room::after {
+    content: "⏳";
+    margin-left: 5px;
+}
 /* Room creation loading state */
 .creating-room {
     opacity: 0.7;
