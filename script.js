@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', function() {
     let dmChannels = new Map(); // Map of DM channels: key = otherUserId, value = { messages: [], username: '' }
     let globalMessages = []; // Store global messages separately
 
+    // Room functionality variables
+    let currentRoom = 'global';
+    let userRooms = []; // Array of room objects user is in
+
     // Initialize encryption
     initializeEncryption();
 
@@ -353,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updateServerStatusDisplay(false);
     // Extract the joining logic from joinChat into a separate function
     async function proceedWithJoin() {
-        // If we already became mod during activation, don’t call /api/join again
+        // If we already became mod during activation, don't call /api/join again
         if (isModerator && clientId) {
             usernameSetup.style.display = 'none';
             chatContainer.style.display = 'flex';
@@ -362,25 +366,33 @@ document.addEventListener('DOMContentLoaded', function() {
             messageInput.focus();
             addSystemMessage(`Moderator session active`);
 
-            // Fetch active users + recent messages so the mod sees context
+            // Load user's rooms
+            await loadUserRooms();
+            
+            // Fetch active users + recent messages for current room
             try {
-                const statusRes = await fetch(`${SERVER_URL}/api/active-users`);
-                const statusData = await statusRes.json();
-                updateUserList(statusData.users);
-                document.getElementById('users-online').textContent = `${statusData.users.length} users online`;
+                const usersRes = await fetch(`${SERVER_URL}/api/active-users?roomId=${currentRoom}`);
+                const usersData = await usersRes.json();
+                updateUserList(usersData.users);
+                document.getElementById('users-online').textContent = `${usersData.users.length} users online`;
             } catch (e) {
                 console.error("Failed to fetch active users:", e);
             }
 
             try {
-                const msgsRes = await fetch(`${SERVER_URL}/api/status`);
-                const msgsData = await msgsRes.json();
-                if (msgsData && msgsData.messages) {
-                    globalMessages = msgsData.messages;
-                    for (const m of msgsData.messages) {
+                // Join the current room to get messages
+                const joinRes = await fetch(`${SERVER_URL}/api/join-room`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId, roomId: currentRoom })
+                });
+                
+                const joinData = await joinRes.json();
+                if (joinData.success) {
+                    for (const m of joinData.messages) {
                         const decryptedUsername = await decryptText(m.username);
                         const decryptedMessage = await decryptText(m.message);
-                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, m.roomId !== 'global');
                     }
                 }
             } catch (e) {
@@ -407,6 +419,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(async data => {
             if (data.success) {
                 clientId = data.clientId;
+                currentRoom = data.currentRoom || 'global';
                 usernameSetup.style.display = 'none';
                 chatContainer.style.display = 'flex';
                 messageInput.disabled = false;
@@ -414,15 +427,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 messageInput.focus();
                 addSystemMessage(`Welcome, ${username}!`);
                 
+                // Load user's rooms
+                await loadUserRooms();
+                
                 document.getElementById('users-online').textContent = `${data.users.length} users online`;
                 updateUserList(data.users);
 
                 if (data.messages) {
-                    globalMessages = data.messages;
                     for (const m of data.messages) {
                         const decryptedUsername = await decryptText(m.username);
                         const decryptedMessage = await decryptText(m.message);
-                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, false);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, currentRoom !== 'global');
                     }
                 }
 
@@ -434,7 +449,116 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(err => console.error('Join error:', err));
     }
+    // NEW: Load user's rooms
+    async function loadUserRooms() {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/user-rooms?clientId=${clientId}`);
+            const data = await response.json();
+            
+            if (data.rooms) {
+                userRooms = data.rooms;
+                updateRoomList();
+            }
+        } catch (error) {
+            console.error('Error loading rooms:', error);
+        }
+    }
+        // NEW: Create DM room
+    async function createDMRoom(targetClientId, targetUsername) {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/create-dm-room`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, targetClientId })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                // Join the new room
+                await joinRoom(data.room.id, data.room.name, true);
+                
+                // Reload rooms list
+                await loadUserRooms();
+            } else {
+                alert('Failed to create DM room');
+            }
+        } catch (error) {
+            console.error('Create DM room error:', error);
+            alert('Error creating DM room');
+        }
+    }
 
+    // NEW: Join room
+    async function joinRoom(roomId, roomName, isDM = false) {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/join-room`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, roomId })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                currentRoom = roomId;
+                document.getElementById('current-channel').textContent = roomName;
+                
+                // Update active room in UI
+                document.querySelectorAll('.channel-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                document.querySelector(`[data-channel="${roomId}"]`).classList.add('active');
+                
+                // Clear notification if any
+                document.querySelector(`[data-channel="${roomId}"]`).classList.remove('has-notification');
+                
+                // Clear messages and load room messages
+                const messagesContainer = document.getElementById('messages');
+                messagesContainer.innerHTML = '';
+                
+                for (const m of data.messages) {
+                    const decryptedUsername = await decryptText(m.username);
+                    const decryptedMessage = await decryptText(m.message);
+                    addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, isDM);
+                }
+                
+                // Update user list for this room
+                updateUserList(data.users);
+                document.getElementById('users-online').textContent = `${data.users.length} users online`;
+            }
+        } catch (error) {
+            console.error('Join room error:', error);
+        }
+    }
+
+        // NEW: Update room list in sidebar
+    function updateRoomList() {
+        const channelsList = document.querySelector('.channels-list');
+        const globalItem = document.querySelector('[data-channel="global"]');
+        
+        // Clear existing DM channels (keep global)
+        const dmChannels = document.getElementById('dm-channels');
+        dmChannels.innerHTML = '';
+        
+        // Add DM rooms
+        userRooms.forEach(room => {
+            if (room.isDM) {
+                const dmChannelItem = document.createElement('div');
+                dmChannelItem.classList.add('channel-item', 'dm-channel');
+                dmChannelItem.dataset.channel = room.id;
+                dmChannelItem.dataset.isDm = 'true';
+                dmChannelItem.innerHTML = `
+                    <span class="channel-icon">@</span>
+                    <span class="channel-name">${room.name.replace('DM: ', '')}</span>
+                `;
+                
+                dmChannelItem.addEventListener('click', () => {
+                    switchRoom(room.id, room.name, true);
+                });
+                
+                dmChannels.appendChild(dmChannelItem);
+            }
+        });
+    }
     async function activateServer() {
     const password = serverPasswordInput.value;
     if (!password) return;
@@ -490,31 +614,34 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Check for moderator room commands
+        if (isModerator && msg.startsWith('/clear')) {
+            e.preventDefault();
+            messageInput.value = '';
+            clearAllMessages();
+            return;
+        } else if (isModerator && msg.startsWith('/kickall')) {
+            e.preventDefault();
+            messageInput.value = '';
+            kickAllUsers();
+            return;
+        }
+        
         // Encrypt the message before sending for normal messages
         let encryptedMessage = msg;
         if (cryptoKey) {
             encryptedMessage = "ENCRYPTED:" + await encryptText(msg);
         }
         
-        if (currentChannel === 'global') {
-            // Send to global chat
-            fetch(`${SERVER_URL}/api/send-message`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, message: encryptedMessage })
-            }).then(() => messageInput.value = '');
-        } else if (dmChannels.has(currentChannel)) {
-            // Send DM
-            fetch(`${SERVER_URL}/api/send-dm`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    clientId, 
-                    targetClientId: currentChannel, 
-                    message: encryptedMessage 
-                })
-            }).then(() => messageInput.value = '');
-        }
+        fetch(`${SERVER_URL}/api/send-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                clientId, 
+                message: encryptedMessage, 
+                roomId: currentRoom 
+            })
+        }).then(() => messageInput.value = '');
     }
 
     // === Proper long polling (no setInterval) ===
@@ -568,13 +695,12 @@ document.addEventListener('DOMContentLoaded', function() {
     async function handleServerEvent(event, data) {
         switch (event) {
             case 'server_activated':
-                updateServerStatusDisplay(true); // Use the new function
+                updateServerStatusDisplay(true);
                 addSystemMessage('Server has been activated');
                 break;
             case 'server_deactivated':
-                updateServerStatusDisplay(false); // Use the new function
+                updateServerStatusDisplay(false);
                 addSystemMessage('Server has been deactivated. Please refresh.');
-                // Disable chat functionality
                 messageInput.disabled = true;
                 sendButton.disabled = true;
                 break;
@@ -591,53 +717,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 addSystemMessage(`Moderator ${modUsername} has joined`); 
                 break;
             case 'receive_message': 
-                // Server messages don't need decryption
-                let decryptedUsername, decryptedMessage;
-                
-                if (data.username === "SERVER") {
-                    decryptedUsername = "SERVER";
-                    decryptedMessage = data.message; // Server messages aren't encrypted
-                } else {
-                    decryptedUsername = await decryptText(data.username);
-                    decryptedMessage = await decryptText(data.message);
-                }
-                
-                // Store in global messages
-                globalMessages.push(data);
-                addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id, false); 
-                break;
-            case 'receive_dm':
-                const dmSenderUsername = await decryptText(data.senderUsername);
-                const dmMessage = await decryptText(data.message);
-                
-                // Store the DM message
-                if (!dmChannels.has(data.senderId)) {
-                    createDMChannel(data.senderId, dmSenderUsername);
-                }
-                
-                const dmChannel = dmChannels.get(data.senderId);
-                dmChannel.messages.push({
-                    id: data.id,
-                    username: dmSenderUsername,
-                    message: dmMessage,
-                    timestamp: data.timestamp
-                });
-                
-                // If we're currently viewing this DM channel, display the message
-                if (currentChannel === data.senderId) {
-                    addMessage(dmSenderUsername, dmMessage, data.timestamp, data.id, true);
-                } else {
-                    // Show notification for new DM
-                    const channelItem = document.querySelector(`[data-channel="${data.senderId}"]`);
-                    if (channelItem) {
-                        channelItem.classList.add('has-notification');
+                // Only show messages for current room
+                if (data.roomId === currentRoom) {
+                    let decryptedUsername, decryptedMessage;
+                    
+                    if (data.username === "SERVER") {
+                        decryptedUsername = "SERVER";
+                        decryptedMessage = data.message;
+                    } else {
+                        decryptedUsername = await decryptText(data.username);
+                        decryptedMessage = await decryptText(data.message);
                     }
+                    
+                    addMessage(decryptedUsername, decryptedMessage, data.timestamp, data.id, data.roomId !== 'global'); 
                 }
                 break;
             case 'users_list': {
-                // data is an array of user objects from server
                 document.getElementById('users-online').textContent = `${data.length} users online`;
-                // update the sidebar user list
                 updateUserList(data);
                 break;
             }
@@ -645,10 +741,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.isMod) {
                     isModerator = true;
                     addSystemMessage('You are now a moderator!');
-                    // Add delete buttons to all existing messages
                     addDeleteButtonsToAllMessages();
-                    // Refresh the user list to show kick buttons
-                    fetch(`${SERVER_URL}/api/active-users`)
+                    fetch(`${SERVER_URL}/api/active-users?roomId=${currentRoom}`)
                         .then(res => res.json())
                         .then(data => updateUserList(data.users))
                         .catch(err => console.error('Error fetching users:', err));
@@ -657,12 +751,10 @@ document.addEventListener('DOMContentLoaded', function() {
             case "kicked":
                 addSystemMessage("You have been kicked from the chat.");
                 setTimeout(() => {
-                    window.location.href = "kicked.html"; // redirect
+                    window.location.href = "kicked.html";
                 }, 1500);
                 break;
-
             case 'message_deleted':
-                // Find and remove the message from UI
                 const messageEl = document.querySelector(`[data-message-id="${data}"]`);
                 if (messageEl) {
                     messageEl.remove();
@@ -670,10 +762,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 break;
             case 'messages_cleared':
-                // Clear all messages from UI
                 messagesContainer.innerHTML = '';
-                globalMessages = [];
-                // No system message (silent cleanup)
+                addSystemMessage('All messages were cleared by a moderator');
+                break;
+            case 'room_created':
+                // Reload rooms when a new one is created
+                await loadUserRooms();
                 break;
         }
     }
@@ -723,8 +817,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 dmBtn.innerHTML = '✉️';
                 dmBtn.onclick = (e) => {
                     e.stopPropagation();
-                    createDMChannel(user.clientId, displayName);
-                    switchChannel(user.clientId, displayName, true);
+                    createDMRoom(user.clientId, displayName);
                 };
                 userItem.appendChild(dmBtn);
             }
@@ -787,37 +880,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Channel switching function
-    function switchChannel(channelId, channelName, isDM = false) {
-        currentChannel = channelId;
-        document.getElementById('current-channel').textContent = isDM ? `DM with ${channelName}` : 'Global Chat';
-        
-        // Update active channel in UI
-        document.querySelectorAll('.channel-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        document.querySelector(`[data-channel="${channelId}"]`).classList.add('active');
-        
-        // Clear notification if any
-        document.querySelector(`[data-channel="${channelId}"]`).classList.remove('has-notification');
-        
-        // Clear messages and load appropriate ones
-        const messagesContainer = document.getElementById('messages');
-        messagesContainer.innerHTML = '';
-        
-        if (isDM) {
-            // Load DM messages
-            const dmChannel = dmChannels.get(channelId);
-            if (dmChannel && dmChannel.messages) {
-                dmChannel.messages.forEach(msg => {
-                    addMessage(msg.username, msg.message, msg.timestamp, msg.id, true);
-                });
-            }
-        } else {
-            // Load global messages
-            globalMessages.forEach(msg => {
-                addMessage(msg.username, msg.message, msg.timestamp, msg.id, false);
-            });
-        }
+    function switchRoom(roomId, roomName, isDM = false) {
+        joinRoom(roomId, roomName, isDM);
     }
     
     // Function to create a DM channel
