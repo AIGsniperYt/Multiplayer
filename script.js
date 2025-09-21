@@ -660,6 +660,9 @@ document.addEventListener('DOMContentLoaded', function() {
         dmChannels.innerHTML = '';
         
         for (const room of userRooms) {
+            // Skip the global room since it's already hardcoded in HTML
+            if (room.id === 'global') continue;
+            
             try {
                 const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
                 const data = await response.json();
