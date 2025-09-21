@@ -542,7 +542,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            // Rest of the existing createDMRoom function...
             let displayName = targetUsername;
             if (targetUsername.startsWith('ENCRYPTED:')) {
                 displayName = await decryptText(targetUsername);
@@ -556,8 +555,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const data = await response.json();
             if (data.success) {
+                // Just join the room, don't call loadUserRooms() again
                 await joinRoom(data.room.id, `DM: ${displayName}`, true);
-                await loadUserRooms();
+                // The room will be automatically added to the UI via the room_created event
             } else {
                 alert('Failed to create DM room');
             }
