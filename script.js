@@ -200,6 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return "[Unable to decrypt message]";
         }
     }
+        
     function handleMessageInput(e) {
         const msg = messageInput.value;
         
@@ -215,8 +216,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 kickAllUsers();
             } else if (msg.startsWith('/s ')) {
                 // Don't prevent default here - let the Enter key send the message
-                // We'll handle this in the sendMessage function instead
+            } else if (msg.startsWith('/hide')) {
+                e.preventDefault();
+                messageInput.value = '';
+                toggleVisibility(true);
+            } else if (msg.startsWith('/show')) {
+                e.preventDefault();
+                messageInput.value = '';
+                toggleVisibility(false);
             }
+        }
+    }
+
+    async function toggleVisibility(isHidden) {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/toggle-visibility`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, isHidden })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                addSystemMessage(`Developer mode ${isHidden ? 'hidden' : 'visible'}`);
+            } else {
+                alert('Failed to toggle visibility');
+            }
+        } catch (error) {
+            console.error('Toggle visibility error:', error);
+            alert('Error toggling visibility');
         }
     }
     async function clearAllMessages() {
