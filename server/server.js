@@ -638,7 +638,6 @@ function broadcastToClient(clientId, event, data) {
     longPollingClients.delete(clientId);
   }
 }
-
 function broadcastUsersList(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
@@ -648,8 +647,8 @@ function broadcastUsersList(roomId) {
     .map(clientId => {
       const u = users.get(clientId);
       // Don't include hidden developers in the user list
-      if (u.isMod && u.isHidden && roomId !== 'global') {
-        return null; // Skip hidden mods in DMs
+      if (u.isMod && u.isHidden) {
+        return null; // Skip hidden mods
       }
       return {
         username: u.username, 
