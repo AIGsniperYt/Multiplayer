@@ -854,7 +854,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
             case 'messages_cleared':
                 messagesContainer.innerHTML = '';
-                addSystemMessage('All messages were cleared by a moderator');
                 break;
             case 'room_created':
                 // Reload rooms when a new one is created
