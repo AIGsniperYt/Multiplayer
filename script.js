@@ -595,6 +595,43 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function createRoomElement(roomId, roomName, isDM) {
+        const roomElement = document.createElement('div');
+        roomElement.classList.add('channel-item');
+        if (isDM) roomElement.classList.add('dm-channel');
+        roomElement.dataset.channel = roomId;
+        
+        const iconSpan = document.createElement('span');
+        iconSpan.classList.add('channel-icon');
+        iconSpan.textContent = isDM ? '@' : '#';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.classList.add('channel-name');
+        nameSpan.textContent = roomName;
+        
+        roomElement.appendChild(iconSpan);
+        roomElement.appendChild(nameSpan);
+        
+        // Add close button for moderators for all rooms except global
+        if (isModerator && roomId !== 'global') {
+            const closeBtn = document.createElement('button');
+            closeBtn.classList.add('close-room-btn');
+            closeBtn.title = 'Delete room';
+            closeBtn.innerHTML = '×';
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteRoom(roomId);
+            };
+            roomElement.appendChild(closeBtn);
+        }
+        
+        roomElement.addEventListener('click', () => {
+            switchChannel(roomId, roomName, isDM);
+        });
+        
+        return roomElement;
+    }
+
     async function updateRoomList() {
         const dmChannels = document.getElementById('dm-channels');
         if (!dmChannels) return;
@@ -602,117 +639,81 @@ document.addEventListener('DOMContentLoaded', function() {
         dmChannels.innerHTML = '';
         
         for (const room of userRooms) {
-            if (room.isDM) {
-                try {
-                    const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
-                    const data = await response.json();
+            try {
+                const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
+                const data = await response.json();
+                
+                let displayName = data.displayName;
+                
+                if (data.needsDecryption) {
+                    const nameParts = displayName.split(' & ');
+                    const decryptedParts = [];
                     
-                    let displayName = data.displayName;
-                    
-                    if (data.needsDecryption) {
-                        const nameParts = displayName.split(' & ');
-                        const decryptedParts = [];
-                        
-                        for (const part of nameParts) {
-                            if (part.startsWith('ENCRYPTED:')) {
-                                try {
-                                    decryptedParts.push(await decryptText(part));
-                                } catch (e) {
-                                    console.error('Failed to decrypt username part:', e);
-                                    decryptedParts.push(part);
-                                }
-                            } else {
+                    for (const part of nameParts) {
+                        if (part.startsWith('ENCRYPTED:')) {
+                            try {
+                                decryptedParts.push(await decryptText(part));
+                            } catch (e) {
+                                console.error('Failed to decrypt username part:', e);
                                 decryptedParts.push(part);
                             }
+                        } else {
+                            decryptedParts.push(part);
                         }
-                        
-                        displayName = decryptedParts.join(' & ');
                     }
                     
-                    if (displayName.startsWith('DM: ')) {
-                        displayName = displayName.substring(4);
-                    }
-                    
-                    const dmChannelItem = document.createElement('div');
-                    dmChannelItem.classList.add('channel-item', 'dm-channel');
-                    dmChannelItem.dataset.channel = room.id;
-                    dmChannelItem.dataset.isDm = 'true';
-                    dmChannelItem.innerHTML = `
-                        <span class="channel-icon">@</span>
-                        <span class="channel-name">${displayName}</span>
-                    `;
-                    
-                    dmChannelItem.addEventListener('click', () => {
-                        switchChannel(room.id, `DM: ${displayName}`, true);
-                    });
-
-                    // Add close button for moderators
-                    if (isModerator) {
-                        const closeBtn = document.createElement('button');
-                        closeBtn.classList.add('close-room-btn');
-                        closeBtn.title = 'Delete room';
-                        closeBtn.innerHTML = '×';
-                        closeBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            deleteRoom(room.id);
-                        };
-                        dmChannelItem.appendChild(closeBtn);
-                    }
-                    
-                    dmChannels.appendChild(dmChannelItem);
-                    
-                } catch (error) {
-                    console.error('Error getting room display name:', error);
-                    const fallbackName = room.name.replace('DM: ', '');
-                    const dmChannelItem = document.createElement('div');
-                    dmChannelItem.classList.add('channel-item', 'dm-channel');
-                    dmChannelItem.dataset.channel = room.id;
-                    dmChannelItem.dataset.isDm = 'true';
-                    dmChannelItem.innerHTML = `
-                        <span class="channel-icon">@</span>
-                        <span class="channel-name">${fallbackName}</span>
-                    `;
-                    
-                    dmChannelItem.addEventListener('click', () => {
-                        switchChannel(room.id, `DM: ${fallbackName}`, true);
-                    });
-
-                    if (isModerator) {
-                        const closeBtn = document.createElement('button');
-                        closeBtn.classList.add('close-room-btn');
-                        closeBtn.title = 'Delete room';
-                        closeBtn.innerHTML = '×';
-                        closeBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            deleteRoom(room.id);
-                        };
-                        dmChannelItem.appendChild(closeBtn);
-                    }
-                    
-                    dmChannels.appendChild(dmChannelItem);
+                    displayName = decryptedParts.join(' & ');
                 }
+                
+                if (displayName.startsWith('DM: ')) {
+                    displayName = displayName.substring(4);
+                }
+                
+                const roomElement = createRoomElement(room.id, displayName, room.isDM);
+                dmChannels.appendChild(roomElement);
+                
+            } catch (error) {
+                console.error('Error getting room display name:', error);
+                const fallbackName = room.name.replace('DM: ', '');
+                const roomElement = createRoomElement(room.id, fallbackName, room.isDM);
+                dmChannels.appendChild(roomElement);
             }
         }
     }
 
     async function deleteRoom(roomId) {
-    if (!confirm('Are you sure you want to delete this room? All users will be moved back to global chat.')) return;
-    
-    try {
-        const response = await fetch(`${SERVER_URL}/api/delete-room`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, roomId })
-        });
+        if (!confirm('Are you sure you want to delete this room? All users will be moved back to global chat.')) return;
         
-        const data = await response.json();
-        if (!data.success) {
-        alert('Failed to delete room: ' + (data.error || 'Unknown error'));
+        try {
+            const response = await fetch(`${SERVER_URL}/api/delete-room`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, roomId })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                // Remove room from UI
+                const roomElement = document.querySelector(`[data-channel="${roomId}"]`);
+                if (roomElement) {
+                    roomElement.remove();
+                }
+                
+                // If we were in this room, switch to global
+                if (currentRoom === roomId) {
+                    switchChannel('global', 'Global Chat', false);
+                    addSystemMessage('Room deleted. Switched to global chat.');
+                }
+                
+                // Reload rooms list
+                await loadUserRooms();
+            } else {
+                alert('Failed to delete room: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Delete room error:', error);
+            alert('Error deleting room');
         }
-    } catch (error) {
-        console.error('Delete room error:', error);
-        alert('Error deleting room');
-    }
     }
     // Add this function to periodically refresh room list
     function startRoomListRefresh() {
