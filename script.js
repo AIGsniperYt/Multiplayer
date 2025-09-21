@@ -77,11 +77,6 @@ document.addEventListener('DOMContentLoaded', function() {
     usersToggle.addEventListener('click', () => {
         usersSidebar.classList.toggle('visible');
     });
-    
-    // Global channel click handler
-    document.querySelector('[data-channel="global"]').addEventListener('click', () => {
-        switchChannel('global', 'Global Chat', false);
-    });
 
     // Handle page/tab close or refresh
     window.addEventListener('beforeunload', () => {
@@ -509,7 +504,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             
             if (data.rooms) {
-                // Filter out any duplicate rooms
+                // Filter out any duplicate rooms only (keep global room)
                 const uniqueRooms = [];
                 const roomIds = new Set();
                 
@@ -567,7 +562,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // NEW: Join room
     async function joinRoom(roomId, roomName, isDM = false) {
         try {
             const response = await fetch(`${SERVER_URL}/api/join-room`, {
@@ -579,15 +573,21 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             if (data.success) {
                 currentRoom = roomId;
-                document.getElementById('current-channel').textContent = roomName;
                 
-                // Update active room in UI - safely
+                // Use the actual room name from server if available
+                let displayName = roomName;
+                if (roomId === 'global') {
+                    displayName = 'Global Chat';
+                }
+                
+                document.getElementById('current-channel').textContent = displayName;
+                
+                // Update active room in UI
                 document.querySelectorAll('.channel-item').forEach(item => {
                     item.classList.remove('active');
                 });
                 
-                // Find the channel element or create it if it doesn't exist
-                let channelElement = document.querySelector(`[data-channel="${roomId}"]`);
+                const channelElement = document.querySelector(`[data-channel="${roomId}"]`);
                 if (channelElement) {
                     channelElement.classList.add('active');
                     channelElement.classList.remove('has-notification');
@@ -654,15 +654,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function updateRoomList() {
+        const channelsList = document.getElementById('channels-list');
         const dmChannels = document.getElementById('dm-channels');
-        if (!dmChannels) return;
+        if (!channelsList || !dmChannels) return;
         
+        channelsList.innerHTML = '';
         dmChannels.innerHTML = '';
         
         for (const room of userRooms) {
-            // Skip the global room since it's already hardcoded in HTML
-            if (room.id === 'global') continue;
-            
             try {
                 const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
                 const data = await response.json();
@@ -689,18 +688,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     displayName = decryptedParts.join(' & ');
                 }
                 
-                if (displayName.startsWith('DM: ')) {
-                    displayName = displayName.substring(4);
-                }
-                
                 const roomElement = createRoomElement(room.id, displayName, room.isDM);
-                dmChannels.appendChild(roomElement);
+                
+                // Add to appropriate section
+                if (room.isDM) {
+                    dmChannels.appendChild(roomElement);
+                } else {
+                    channelsList.appendChild(roomElement);
+                }
                 
             } catch (error) {
                 console.error('Error getting room display name:', error);
                 const fallbackName = room.name.replace('DM: ', '');
                 const roomElement = createRoomElement(room.id, fallbackName, room.isDM);
-                dmChannels.appendChild(roomElement);
+                
+                if (room.isDM) {
+                    dmChannels.appendChild(roomElement);
+                } else {
+                    channelsList.appendChild(roomElement);
+                }
+            }
+        }
+        
+        // Set global channel as active by default if we're in global room
+        if (currentRoom === 'global') {
+            const globalElement = document.querySelector('[data-channel="global"]');
+            if (globalElement) {
+                globalElement.classList.add('active');
             }
         }
     }
