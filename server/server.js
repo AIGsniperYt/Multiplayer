@@ -630,30 +630,39 @@ app.get('/api/user-rooms', (req, res) => {
 });
 
 app.post('/api/delete-room', (req, res) => {
-  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+    if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, roomId } = req.body;
-  if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
-  
-  const moderator = users.get(clientId);
-  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+    const { clientId, roomId } = req.body;
+    if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
+    
+    const moderator = users.get(clientId);
+    if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
 
-  const room = rooms.get(roomId);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
+    const room = rooms.get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
 
-  // Don't allow deletion of the global room
-  if (roomId === 'global') return res.status(400).json({ error: 'Cannot delete global room' });
+    // Don't allow deletion of the global room
+    if (roomId === 'global') return res.status(400).json({ error: 'Cannot delete global room' });
 
-  // Notify all users in the room that it's being deleted
-  room.users.forEach(clientId => {
-    broadcastToClient(clientId, 'room_deleted', { roomId });
-  });
+    // Move all users to global room
+    const globalRoom = rooms.get('global');
+    room.users.forEach(userId => {
+        if (users.has(userId)) {
+            room.users.delete(userId);
+            globalRoom.users.add(userId);
+            // Notify user they've been moved
+            broadcastToClient(userId, 'room_deleted', { roomId });
+        }
+    });
 
-  // Remove the room
-  rooms.delete(roomId);
-  console.log(`Room deleted by moderator ${moderator.username}: ${roomId}`);
+    // Remove the room
+    rooms.delete(roomId);
+    console.log(`Room deleted by moderator ${moderator.username}: ${roomId}`);
 
-  res.json({ success: true });
+    // Notify all clients to update their room lists
+    broadcastToAll('room_deleted', { roomId });
+
+    res.json({ success: true });
 });
 
 // === Broadcast helpers ===
