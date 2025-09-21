@@ -7,7 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // CORS at the very top
-// Replace the CORS section at the top with this:
 app.use(cors({
   origin: function (origin, callback) {
     // 1. Allow requests with no origin (like from mobile apps, Postman, or same-origin requests)
@@ -24,7 +23,7 @@ app.use(cors({
       "http://localhost:5500",         // Another common Live Server port
     ];
 
-    // 3. Check if the origin is in the allowed list or if it's a subdomain
+    // 3. Check if the origin is in the allowed list
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -34,8 +33,10 @@ app.use(cors({
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
 // Add this after CORS setup to handle preflight requests
