@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch(`${SERVER_URL}/api/clear-messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId })
+                body: JSON.stringify({ clientId, roomId: currentRoom }) // Add roomId
             });
             
             const data = await response.json();
@@ -680,14 +680,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Check for moderator room commands
+        // Check for moderator room commands - REMOVE THE 'e' PARAMETER
         if (isModerator && msg.startsWith('/clear')) {
-            e.preventDefault();
             messageInput.value = '';
             clearAllMessages();
             return;
         } else if (isModerator && msg.startsWith('/kickall')) {
-            e.preventDefault();
             messageInput.value = '';
             kickAllUsers();
             return;
