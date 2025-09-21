@@ -159,6 +159,7 @@ app.post('/api/join', (req, res) => {
     users: Array.from(users.values()).filter(u => globalRoom.users.has(u.clientId)).map(u => ({
       username: u.username,
       isMod: u.isMod,
+      isHidden: u.isHidden || false, // Add this line
       joinedAt: u.joinedAt,
       clientId: u.clientId
     })),
@@ -327,6 +328,7 @@ app.get('/api/active-users', (req, res) => {
       return {
         username: u.username,
         isMod: u.isMod,
+        isHidden: u.isHidden || false,
         joinedAt: u.joinedAt,
         clientId: u.clientId
       };
@@ -557,7 +559,6 @@ app.get('/api/room-display-name', (req, res) => {
     }
 });
 
-// NEW: Join room endpoint
 app.post('/api/join-room', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -581,6 +582,7 @@ app.post('/api/join-room', (req, res) => {
         return {
           username: u.username,
           isMod: u.isMod,
+          isHidden: u.isHidden || false, // Add this line
           joinedAt: u.joinedAt,
           clientId: u.clientId
         };
