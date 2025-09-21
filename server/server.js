@@ -535,8 +535,8 @@ app.post('/api/create-dm-room', (req, res) => {
     });
 });
 
-// Add this new endpoint for getting room display names
-app.get('/api/room-display-name', (req, res) => {
+// Update the /api/room-display-name endpoint
+app.get('/api/room-display-name', async (req, res) => {
     if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
     const { roomId, clientId } = req.query;
@@ -548,14 +548,33 @@ app.get('/api/room-display-name', (req, res) => {
     if (!room || !user) return res.status(404).json({ error: 'Room or user not found' });
     
     if (room.isDM && room.participantUsernames) {
-        // For DMs, filter out the current user's name
-        const displayName = room.participantUsernames
-            .filter(username => username !== user.username)
-            .join(' & ');
-            
-        res.json({ displayName: displayName || room.participantUsernames.join(' & ') });
+        // For moderators, return the usernames as-is (encrypted)
+        // For participants, decrypt their own username but leave others encrypted
+        let displayNames = [];
+        
+        for (const encryptedUsername of room.participantUsernames) {
+            // If this is the current user's encrypted username, decrypt it
+            if (encryptedUsername.startsWith('ENCRYPTED:') && 
+                encryptedUsername === user.username) {
+                // This is the current user's own encrypted username
+                // We can't decrypt it here (server doesn't have the key)
+                // So we'll return it as-is and let the client handle decryption
+                displayNames.push(encryptedUsername);
+            } else {
+                // For other users or if user is moderator, keep encrypted
+                displayNames.push(encryptedUsername);
+            }
+        }
+        
+        // Filter out the current user's name for display
+        const filteredNames = displayNames.filter(name => name !== user.username);
+        
+        res.json({ 
+            displayName: filteredNames.join(' & '),
+            needsDecryption: filteredNames.some(name => name.startsWith('ENCRYPTED:'))
+        });
     } else {
-        res.json({ displayName: room.name });
+        res.json({ displayName: room.name, needsDecryption: false });
     }
 });
 
