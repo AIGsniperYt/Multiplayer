@@ -272,7 +272,25 @@ body {
     50% { opacity: 0.5; }
     100% { opacity: 1; }
 }
+.close-room-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 5px;
+}
 
+.close-room-btn:hover {
+  color: #ff4444;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 .dm-channel {
     padding-left: 20px !important;
     border-left: 2px solid #7289da;
