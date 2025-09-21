@@ -12,9 +12,8 @@ with the serious stuff done, heres what the encryption looks like for network tr
 
 The server requires someone to activate it using a password (preferably me)
 The Moderator has a few commands for use:
-
+```bash
 /kickall
-
 /clear
-
 /s [server_message]
+```
