@@ -502,23 +502,47 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(err => console.error('Join error:', err));
     }
-    // NEW: Load user's rooms
+
     async function loadUserRooms() {
         try {
             const response = await fetch(`${SERVER_URL}/api/user-rooms?clientId=${clientId}`);
             const data = await response.json();
             
             if (data.rooms) {
-                userRooms = data.rooms;
+                // Filter out any duplicate rooms
+                const uniqueRooms = [];
+                const roomIds = new Set();
+                
+                for (const room of data.rooms) {
+                    if (!roomIds.has(room.id)) {
+                        roomIds.add(room.id);
+                        uniqueRooms.push(room);
+                    }
+                }
+                
+                userRooms = uniqueRooms;
                 updateRoomList();
             }
         } catch (error) {
             console.error('Error loading rooms:', error);
         }
     }
+
     async function createDMRoom(targetClientId, targetUsername) {
+        // Check if we already have a DM room with this user
+        const existingRoom = userRooms.find(room => 
+            room.isDM && room.participants && 
+            room.participants.includes(targetClientId)
+        );
+        
+        if (existingRoom) {
+            // Switch to existing room instead of creating a new one
+            await joinRoom(existingRoom.id, `DM: ${targetUsername}`, true);
+            return;
+        }
+        
         try {
-            // Decrypt the target username if it's encrypted
+            // Rest of the existing createDMRoom function...
             let displayName = targetUsername;
             if (targetUsername.startsWith('ENCRYPTED:')) {
                 displayName = await decryptText(targetUsername);
@@ -532,10 +556,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const data = await response.json();
             if (data.success) {
-                // Join the new room using the decrypted name
                 await joinRoom(data.room.id, `DM: ${displayName}`, true);
-                
-                // Reload rooms list
                 await loadUserRooms();
             } else {
                 alert('Failed to create DM room');
@@ -1008,31 +1029,48 @@ document.addEventListener('DOMContentLoaded', function() {
             
             userItem.appendChild(nameContainer);
             
-            // Add DM button for each user (except yourself)
-            if (user.clientId !== clientId) {
-                const dmBtn = document.createElement('button');
-                dmBtn.classList.add('dm-btn');
-                dmBtn.title = `Message ${displayName}`;
-                dmBtn.innerHTML = '✉️';
-                dmBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    createDMRoom(user.clientId, displayName);
-                };
-                userItem.appendChild(dmBtn);
+        if (user.clientId !== clientId) {
+            const dmBtn = document.createElement('button');
+            dmBtn.classList.add('dm-btn');
+            dmBtn.title = `Message ${displayName}`;
+            dmBtn.innerHTML = '✉️';
+            dmBtn.onclick = (e) => {
+                e.stopPropagation();
+                createDMRoom(user.clientId, displayName);
+            };
+            
+            // Create button container if it doesn't exist
+            let buttonContainer = userItem.querySelector('.user-buttons');
+            if (!buttonContainer) {
+                buttonContainer = document.createElement('div');
+                buttonContainer.classList.add('user-buttons');
+                userItem.appendChild(buttonContainer);
             }
             
-            // Add kick button for moderators only
-            if (isModerator && displayName !== username) {
-                const kickBtn = document.createElement('button');
-                kickBtn.classList.add('kick-btn');
-                kickBtn.title = `Kick ${displayName}`;
-                kickBtn.innerHTML = '×';
-                kickBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    kickUser(user.username);
-                };
-                userItem.appendChild(kickBtn);
+            buttonContainer.appendChild(dmBtn);
+        }
+
+        // Add kick button for moderators only
+        if (isModerator && displayName !== username) {
+            const kickBtn = document.createElement('button');
+            kickBtn.classList.add('kick-btn');
+            kickBtn.title = `Kick ${displayName}`;
+            kickBtn.innerHTML = '×';
+            kickBtn.onclick = (e) => {
+                e.stopPropagation();
+                kickUser(user.username);
+            };
+            
+            // Create button container if it doesn't exist
+            let buttonContainer = userItem.querySelector('.user-buttons');
+            if (!buttonContainer) {
+                buttonContainer = document.createElement('div');
+                buttonContainer.classList.add('user-buttons');
+                userItem.appendChild(buttonContainer);
             }
+            
+            buttonContainer.appendChild(kickBtn);
+        }
             
             usersListEl.appendChild(userItem);
         }
