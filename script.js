@@ -610,9 +610,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     let displayName = data.displayName;
                     
-                    // Decrypt the display name if it's encrypted
-                    if (displayName.startsWith('ENCRYPTED:')) {
-                        displayName = await decryptText(displayName);
+                    // If the server indicates decryption is needed, handle it
+                    if (data.needsDecryption) {
+                        // Decrypt each encrypted part separately
+                        const nameParts = displayName.split(' & ');
+                        const decryptedParts = [];
+                        
+                        for (const part of nameParts) {
+                            if (part.startsWith('ENCRYPTED:')) {
+                                try {
+                                    decryptedParts.push(await decryptText(part));
+                                } catch (e) {
+                                    console.error('Failed to decrypt username part:', e);
+                                    decryptedParts.push(part); // Fallback to encrypted version
+                                }
+                            } else {
+                                decryptedParts.push(part);
+                            }
+                        }
+                        
+                        displayName = decryptedParts.join(' & ');
                     }
                     
                     // Remove "DM: " prefix if present
