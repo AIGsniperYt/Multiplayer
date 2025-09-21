@@ -609,7 +609,6 @@ app.post('/api/join-room', (req, res) => {
   });
 });
 
-// NEW: Get user's rooms endpoint
 app.get('/api/user-rooms', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -630,6 +629,32 @@ app.get('/api/user-rooms', (req, res) => {
   res.json({ rooms: userRooms });
 });
 
+app.post('/api/delete-room', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, roomId } = req.body;
+  if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
+  
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  const room = rooms.get(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+
+  // Don't allow deletion of the global room
+  if (roomId === 'global') return res.status(400).json({ error: 'Cannot delete global room' });
+
+  // Notify all users in the room that it's being deleted
+  room.users.forEach(clientId => {
+    broadcastToClient(clientId, 'room_deleted', { roomId });
+  });
+
+  // Remove the room
+  rooms.delete(roomId);
+  console.log(`Room deleted by moderator ${moderator.username}: ${roomId}`);
+
+  res.json({ success: true });
+});
 
 // === Broadcast helpers ===
 function broadcastToRoom(roomId, event, data) {
