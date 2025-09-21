@@ -221,24 +221,37 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     async function clearAllMessages() {
         try {
+            console.log('Clearing messages for room:', currentRoom, 'clientId:', clientId);
+            
             const response = await fetch(`${SERVER_URL}/api/clear-messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, roomId: currentRoom }) // Add roomId
+                body: JSON.stringify({ clientId, roomId: currentRoom })
             });
             
+            console.log('Clear response status:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Clear error response:', errorText);
+                alert('Failed to clear messages: ' + errorText);
+                return;
+            }
+            
             const data = await response.json();
+            console.log('Clear response data:', data);
+            
             if (data.success) {
                 // Clear messages from UI
                 messagesContainer.innerHTML = '';
                 globalMessages = [];
                 // Don't show any system message (silent cleanup)
             } else {
-                alert('Failed to clear messages');
+                alert('Failed to clear messages: ' + (data.error || 'Unknown error'));
             }
         } catch (error) {
             console.error('Clear messages error:', error);
-            alert('Error clearing messages');
+            alert('Error clearing messages: ' + error.message);
         }
     }
 
@@ -265,7 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function sendServerMessage(message) {
-        console.log('Sending server message:', { clientId, message, isModerator });
+        console.log('Sending server message:', { clientId, message, isModerator, currentRoom });
         
         // Double check that we have a valid clientId and moderator status
         if (!clientId) {
@@ -284,7 +297,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     clientId: clientId, 
-                    message: message 
+                    message: message,
+                    roomId: currentRoom // Add current room ID
                 })
             });
             
