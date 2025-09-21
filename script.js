@@ -962,27 +962,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 messagesContainer.innerHTML = '';
                 break;
             case 'room_created':
-                // Reload rooms when a new one is created
-                await loadUserRooms();
+                // Check if we already have this room to avoid duplicates
+                const roomExists = userRooms.some(room => room.id === data.roomId);
+                if (!roomExists) {
+                    // Only reload rooms if we don't already have this one
+                    await loadUserRooms();
+                }
                 break;
             case 'room_deleted':
-            if (data.roomId === currentRoom) {
-                addSystemMessage('This room has been deleted by a moderator. Returning to global chat.');
-                // Switch back to global chat
-                setTimeout(() => {
-                switchChannel('global', 'Global Chat', false);
-                }, 2000);
-            }
-            
-            // Remove the room from the UI
-            const roomElement = document.querySelector(`[data-channel="${data.roomId}"]`);
-            if (roomElement) {
-                roomElement.remove();
-            }
-            
-            // Remove from userRooms array
-            userRooms = userRooms.filter(room => room.id !== data.roomId);
-            break;
+                if (data.roomId === currentRoom) {
+                    addSystemMessage('This room has been deleted by a moderator. Returning to global chat.');
+                    // Switch back to global chat
+                    setTimeout(() => {
+                        switchChannel('global', 'Global Chat', false);
+                    }, 2000);
+                }
+                
+                // Remove the room from the UI
+                const roomElement = document.querySelector(`[data-channel="${data.roomId}"]`);
+                if (roomElement) {
+                    roomElement.remove();
+                }
+                
+                // Remove from userRooms array
+                userRooms = userRooms.filter(room => room.id !== data.roomId);
+                break;
         }
     }
     
