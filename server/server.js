@@ -357,17 +357,29 @@ app.post('/api/clear-messages', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
   const { clientId, roomId } = req.body;
-  if (!clientId || !roomId) return res.status(400).json({ error: 'Missing parameters' });
+  console.log('Clear messages request:', { clientId, roomId });
+  
+  if (!clientId || !roomId) {
+    console.log('Missing parameters:', { clientId, roomId });
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+  
   const moderator = users.get(clientId);
-  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+  if (!moderator || !moderator.isMod) {
+    console.log('Not a moderator:', { clientId, userExists: !!moderator, isMod: moderator?.isMod });
+    return res.status(403).json({ error: 'Not a moderator' });
+  }
 
   const room = rooms.get(roomId);
   if (room) {
+    console.log('Clearing messages in room:', roomId);
     room.messages.length = 0;
     broadcastToRoom(roomId, 'messages_cleared', {});
+    return res.json({ success: true });
   }
   
-  res.json({ success: true });
+  console.log('Room not found:', roomId);
+  res.status(404).json({ error: 'Room not found' });
 });
 
 app.post('/api/kick-all-users', (req, res) => {
@@ -394,10 +406,10 @@ app.post('/api/kick-all-users', (req, res) => {
 app.post('/api/server-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
-  const { clientId, message } = req.body;
+  const { clientId, message, roomId = 'global' } = req.body; // Add roomId parameter with default
   
   // Add debug logging
-  console.log('Server message request received:', { clientId, message });
+  console.log('Server message request received:', { clientId, message, roomId });
   
   if (!clientId || !message) {
     console.log('Missing parameters:', { clientId, message });
@@ -410,19 +422,30 @@ app.post('/api/server-message', (req, res) => {
     return res.status(403).json({ error: 'Not a moderator' });
   }
 
-  // Send message as server
+  // Send message as server to the specified room (default to global)
   const serverMsgData = {
     id: Date.now(),
     username: "SERVER", // This is not encrypted
     message: message,
     timestamp: Date.now(),
-    isServerMessage: true
+    isServerMessage: true,
+    roomId: roomId // Include room ID
   };
   
-  messages.push(serverMsgData);
-  if (messages.length > 100) messages.shift();
+  // Store message in the appropriate room
+  const room = rooms.get(roomId);
+  if (room) {
+    room.messages.push(serverMsgData);
+    if (room.messages.length > 100) room.messages.shift();
+  } else {
+    // Fallback to global if room doesn't exist
+    const globalRoom = rooms.get('global');
+    globalRoom.messages.push(serverMsgData);
+    if (globalRoom.messages.length > 100) globalRoom.messages.shift();
+  }
   
-  broadcastToAll('receive_message', serverMsgData);
+  // Broadcast to the specific room
+  broadcastToRoom(roomId, 'receive_message', serverMsgData);
   res.json({ success: true });
 });
 
