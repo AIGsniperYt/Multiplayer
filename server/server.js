@@ -249,15 +249,17 @@ app.post('/api/activate-server', (req, res) => {
       if (!clientId || !users.has(clientId)) {
         clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         users.set(clientId, {
-          username: "Moderator",
+          username: "Developer", 
           isMod: true,
           joinedAt: Date.now(),
           clientId,
-          lastCheck: Date.now()
+          lastCheck: Date.now(),
+          isHidden: true 
         });
       } else {
         const user = users.get(clientId);
         user.isMod = true;
+        user.isHidden = true; // Set hidden when becoming mod
       }
       activateServer(clientId);
       return res.json({ success: true, clientId, isMod: true });
@@ -265,6 +267,27 @@ app.post('/api/activate-server', (req, res) => {
     return res.json({ success: true, message: 'Server already active' });
   }
   res.json({ success: false, error: 'Invalid activation password' });
+});
+
+app.post('/api/toggle-visibility', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, isHidden } = req.body;
+  if (!clientId) return res.status(400).json({ error: 'Missing parameters' });
+  
+  const user = users.get(clientId);
+  if (!user || !user.isMod) return res.status(403).json({ error: 'Not a developer' });
+
+  user.isHidden = isHidden;
+  
+  // Broadcast updated user list to all rooms the user is in
+  rooms.forEach(room => {
+    if (room.users.has(clientId)) {
+      broadcastUsersList(room.id);
+    }
+  });
+  
+  res.json({ success: true, isHidden });
 });
 
 app.post('/api/become-mod', (req, res) => {
@@ -624,13 +647,18 @@ function broadcastUsersList(roomId) {
     .filter(clientId => users.has(clientId))
     .map(clientId => {
       const u = users.get(clientId);
+      // Don't include hidden developers in the user list
+      if (u.isMod && u.isHidden && roomId !== 'global') {
+        return null; // Skip hidden mods in DMs
+      }
       return {
         username: u.username, 
         isMod: u.isMod,
         joinedAt: u.joinedAt,
         clientId: u.clientId
       };
-    });
+    })
+    .filter(user => user !== null); // Remove null entries
     
   console.log(`Broadcasting users list for room ${roomId}: ${JSON.stringify(list)}`);
   broadcastToRoom(roomId, 'users_list', list);
