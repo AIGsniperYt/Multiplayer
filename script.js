@@ -202,50 +202,50 @@ document.addEventListener('DOMContentLoaded', function() {
     }
         
     function handleMessageInput(e) {
-        const msg = messageInput.value;
-        
-        // Check for moderator commands
-        if (isModerator && msg.startsWith('/')) {
-            if (msg.startsWith('/clear')) {
-                e.preventDefault();
-                messageInput.value = '';
-                clearAllMessages();
-            } else if (msg.startsWith('/kickall')) {
-                e.preventDefault();
-                messageInput.value = '';
-                kickAllUsers();
-            } else if (msg.startsWith('/s ')) {
-                // Don't prevent default here - let the Enter key send the message
-            } else if (msg.startsWith('/hide')) {
-                e.preventDefault();
-                messageInput.value = '';
-                toggleVisibility(true);
-            } else if (msg.startsWith('/show')) {
-                e.preventDefault();
-                messageInput.value = '';
-                toggleVisibility(false);
-            }
+    const msg = messageInput.value;
+    
+    // Check for moderator commands
+    if (isModerator && msg.startsWith('/')) {
+        if (msg.startsWith('/clear')) {
+        e.preventDefault();
+        messageInput.value = '';
+        clearAllMessages();
+        } else if (msg.startsWith('/kickall')) {
+        e.preventDefault();
+        messageInput.value = '';
+        kickAllUsers();
+        } else if (msg.startsWith('/s ')) {
+        // Don't prevent default here - let the Enter key send the message
+        } else if (msg.startsWith('/hide')) {
+        e.preventDefault();
+        messageInput.value = '';
+        toggleVisibility(true);
+        } else if (msg.startsWith('/show')) {
+        e.preventDefault();
+        messageInput.value = '';
+        toggleVisibility(false);
         }
+    }
     }
 
     async function toggleVisibility(isHidden) {
-        try {
-            const response = await fetch(`${SERVER_URL}/api/toggle-visibility`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId, isHidden })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                addSystemMessage(`Developer mode ${isHidden ? 'hidden' : 'visible'}`);
-            } else {
-                alert('Failed to toggle visibility');
-            }
-        } catch (error) {
-            console.error('Toggle visibility error:', error);
-            alert('Error toggling visibility');
+    try {
+        const response = await fetch(`${SERVER_URL}/api/toggle-visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, isHidden })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+        addSystemMessage(`Developer mode ${isHidden ? 'hidden' : 'visible'}`);
+        } else {
+        alert('Failed to toggle visibility');
         }
+    } catch (error) {
+        console.error('Toggle visibility error:', error);
+        alert('Error toggling visibility');
+    }
     }
     async function clearAllMessages() {
         try {
