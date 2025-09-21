@@ -911,6 +911,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.warn('Failed to decrypt username, using raw value', e);
             }
             
+            // Don't show hidden developers in the user list
+            // The server should already filter these out, but this is a client-side safety check
+            if (user.isMod && user.isHidden) {
+                continue; // Skip hidden moderators
+            }
+            
             const userItem = document.createElement('div');
             userItem.classList.add('user-item');
             
