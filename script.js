@@ -474,9 +474,14 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error loading rooms:', error);
         }
     }
-        // NEW: Create DM room
     async function createDMRoom(targetClientId, targetUsername) {
         try {
+            // Decrypt the target username if it's encrypted
+            let displayName = targetUsername;
+            if (targetUsername.startsWith('ENCRYPTED:')) {
+                displayName = await decryptText(targetUsername);
+            }
+            
             const response = await fetch(`${SERVER_URL}/api/create-dm-room`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -485,8 +490,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const data = await response.json();
             if (data.success) {
-                // Join the new room
-                await joinRoom(data.room.id, data.room.name, true);
+                // Join the new room using the decrypted name
+                await joinRoom(data.room.id, `DM: ${displayName}`, true);
                 
                 // Reload rooms list
                 await loadUserRooms();
@@ -562,6 +567,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const data = await response.json();
                     
                     let displayName = data.displayName;
+                    
+                    // Decrypt the display name if it's encrypted
+                    if (displayName.startsWith('ENCRYPTED:')) {
+                        displayName = await decryptText(displayName);
+                    }
                     
                     // Remove "DM: " prefix if present
                     if (displayName.startsWith('DM: ')) {
@@ -955,10 +965,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // Channel switching function
     async function switchChannel(roomId, roomName, isDM = false) {
         try {
-            // Update UI to show we're switching channels
-            document.getElementById('current-channel').textContent = roomName;
+            // Decrypt the room name if it's encrypted
+            let displayName = roomName;
+            if (roomName.startsWith('ENCRYPTED:')) {
+                displayName = await decryptText(roomName);
+            }
             
-            // Update active channel in UI
+            // Remove "DM: " prefix if present
+            if (isDM && displayName.startsWith('DM: ')) {
+                displayName = displayName.substring(4);
+            }
+            
+            // Update UI to show we're switching channels
+            document.getElementById('current-channel').textContent = isDM ? `DM: ${displayName}` : displayName;
+            
+            // Rest of the function remains the same...
             document.querySelectorAll('.channel-item').forEach(item => {
                 item.classList.remove('active');
             });
