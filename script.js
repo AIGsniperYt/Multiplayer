@@ -604,15 +604,12 @@ document.addEventListener('DOMContentLoaded', function() {
         for (const room of userRooms) {
             if (room.isDM) {
                 try {
-                    // Get appropriate display name from server
                     const response = await fetch(`${SERVER_URL}/api/room-display-name?roomId=${room.id}&clientId=${clientId}`);
                     const data = await response.json();
                     
                     let displayName = data.displayName;
                     
-                    // If the server indicates decryption is needed, handle it
                     if (data.needsDecryption) {
-                        // Decrypt each encrypted part separately
                         const nameParts = displayName.split(' & ');
                         const decryptedParts = [];
                         
@@ -622,7 +619,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     decryptedParts.push(await decryptText(part));
                                 } catch (e) {
                                     console.error('Failed to decrypt username part:', e);
-                                    decryptedParts.push(part); // Fallback to encrypted version
+                                    decryptedParts.push(part);
                                 }
                             } else {
                                 decryptedParts.push(part);
@@ -632,7 +629,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         displayName = decryptedParts.join(' & ');
                     }
                     
-                    // Remove "DM: " prefix if present
                     if (displayName.startsWith('DM: ')) {
                         displayName = displayName.substring(4);
                     }
@@ -649,12 +645,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     dmChannelItem.addEventListener('click', () => {
                         switchChannel(room.id, `DM: ${displayName}`, true);
                     });
+
+                    // Add close button for moderators
+                    if (isModerator) {
+                        const closeBtn = document.createElement('button');
+                        closeBtn.classList.add('close-room-btn');
+                        closeBtn.title = 'Delete room';
+                        closeBtn.innerHTML = '×';
+                        closeBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            deleteRoom(room.id);
+                        };
+                        dmChannelItem.appendChild(closeBtn);
+                    }
                     
                     dmChannels.appendChild(dmChannelItem);
                     
                 } catch (error) {
                     console.error('Error getting room display name:', error);
-                    // Fallback to basic display
                     const fallbackName = room.name.replace('DM: ', '');
                     const dmChannelItem = document.createElement('div');
                     dmChannelItem.classList.add('channel-item', 'dm-channel');
@@ -668,6 +676,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     dmChannelItem.addEventListener('click', () => {
                         switchChannel(room.id, `DM: ${fallbackName}`, true);
                     });
+
+                    if (isModerator) {
+                        const closeBtn = document.createElement('button');
+                        closeBtn.classList.add('close-room-btn');
+                        closeBtn.title = 'Delete room';
+                        closeBtn.innerHTML = '×';
+                        closeBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            deleteRoom(room.id);
+                        };
+                        dmChannelItem.appendChild(closeBtn);
+                    }
                     
                     dmChannels.appendChild(dmChannelItem);
                 }
@@ -675,6 +695,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    async function deleteRoom(roomId) {
+    if (!confirm('Are you sure you want to delete this room? All users will be moved back to global chat.')) return;
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/delete-room`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, roomId })
+        });
+        
+        const data = await response.json();
+        if (!data.success) {
+        alert('Failed to delete room: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Delete room error:', error);
+        alert('Error deleting room');
+    }
+    }
     // Add this function to periodically refresh room list
     function startRoomListRefresh() {
         setInterval(async () => {
@@ -904,6 +943,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Reload rooms when a new one is created
                 await loadUserRooms();
                 break;
+            case 'room_deleted':
+            if (data.roomId === currentRoom) {
+                addSystemMessage('This room has been deleted by a moderator. Returning to global chat.');
+                // Switch back to global chat
+                setTimeout(() => {
+                switchChannel('global', 'Global Chat', false);
+                }, 2000);
+            }
+            
+            // Remove the room from the UI
+            const roomElement = document.querySelector(`[data-channel="${data.roomId}"]`);
+            if (roomElement) {
+                roomElement.remove();
+            }
+            
+            // Remove from userRooms array
+            userRooms = userRooms.filter(room => room.id !== data.roomId);
+            break;
         }
     }
     
@@ -1081,33 +1138,6 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Switch channel error:', error);
             addSystemMessage('Error switching channel');
-        }
-    }
-    
-    // Function to create a DM channel
-    function createDMChannel(userId, username) {
-        if (!dmChannels.has(userId)) {
-            dmChannels.set(userId, {
-                username: username,
-                messages: []
-            });
-            
-            // Add to UI
-            const dmChannelsContainer = document.getElementById('dm-channels');
-            const dmChannelItem = document.createElement('div');
-            dmChannelItem.classList.add('channel-item', 'dm-channel');
-            dmChannelItem.dataset.channel = userId;
-            dmChannelItem.dataset.isDm = 'true';
-            dmChannelItem.innerHTML = `
-                <span class="channel-icon">@</span>
-                <span class="channel-name">${username}</span>
-            `;
-            
-            dmChannelItem.addEventListener('click', () => {
-                switchChannel(userId, username, true);
-            });
-            
-            dmChannelsContainer.appendChild(dmChannelItem);
         }
     }
 
