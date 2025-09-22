@@ -491,11 +491,13 @@ app.post('/api/handle-user-request', (req, res) => {
     broadcastToClient(targetClientId, 'join_approved', { 
       clientId: targetClientId,
       username: pendingUser.username,
-      roomId: 'global'
+      success: true
     });
   } else {
     // Notify the rejected user
-    broadcastToClient(targetClientId, 'join_rejected', {});
+    broadcastToClient(targetClientId, 'join_rejected', { 
+      reason: 'Join request rejected by moderator'
+    });
     console.log(`User rejected: ${pendingUser.username} by ${moderator.username}`);
   }
   
