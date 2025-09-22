@@ -120,15 +120,32 @@ function deactivateServer() {
   isServerActive = false;
   activeModerator = null;
   console.log("Server deactivated - requires moderator");
-  users.clear();
-  longPollingClients.forEach((client, clientId) => {
-    if (client.res && !client.res.finished) {
-      client.res.json({ error: 'Server deactivated. Please refresh.' });
-    }
-  });
-  longPollingClients.clear();
-  messages.length = 0;
+  
+  // First broadcast the deactivation message
   broadcastToAll('server_deactivated', {});
+  
+  // Then after a short delay, kick all users
+  setTimeout(() => {
+    users.forEach((user, userId) => {
+      broadcastToClient(userId, 'kicked', { reason: 'Server deactivated due to moderator leaving' });
+      users.delete(userId);
+      longPollingClients.delete(userId);
+    });
+    
+    // Clear all messages and rooms (except global)
+    messages.length = 0;
+    rooms.forEach((room, roomId) => {
+      if (roomId !== 'global') {
+        rooms.delete(roomId);
+      } else {
+        // Clear global room messages but keep the room
+        room.messages.length = 0;
+        room.users.clear();
+      }
+    });
+    
+    console.log("All users kicked due to server deactivation");
+  }, 2000); // 2 second delay
 }
 
 // === HTTP endpoints ===
