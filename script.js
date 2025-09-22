@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let modActivationAttempted = false;
     let isModerator = false; // Track if current user is a moderator
     let serverActivationAttempted = false;
+    let isServerLocked = false;
+    let pendingApprovalPanel = null;
 
     // DM functionality variables
     let currentChannel = 'global';
@@ -196,6 +198,233 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
         
+    function createPendingApprovalPanel() {
+  if (pendingApprovalPanel) return;
+  
+  pendingApprovalPanel = document.createElement('div');
+  pendingApprovalPanel.id = 'pending-approval-panel';
+  pendingApprovalPanel.innerHTML = `
+    <div class="panel-header">
+      <h3>Pending Users</h3>
+      <button id="refresh-pending-btn">🔄</button>
+    </div>
+    <div id="pending-users-list" class="pending-list"></div>
+  `;
+  
+  document.body.appendChild(pendingApprovalPanel);
+  
+  // Add styles
+  const style = document.createElement('style');
+  style.textContent = `
+    #pending-approval-panel {
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      width: 300px;
+      background: #2d3748;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      z-index: 1000;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      background: #4a5568;
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+    }
+    
+    .panel-header h3 {
+      margin: 0;
+      font-size: 14px;
+      color: white;
+    }
+    
+    #refresh-pending-btn {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    .pending-list {
+      padding: 10px;
+    }
+    
+    .pending-user-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      margin-bottom: 5px;
+      background: #4a5568;
+      border-radius: 4px;
+    }
+    
+    .pending-user-name {
+      color: white;
+      font-size: 14px;
+    }
+    
+    .pending-user-actions {
+      display: flex;
+      gap: 5px;
+    }
+    
+    .approve-btn, .reject-btn {
+      border: none;
+      border-radius: 4px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .approve-btn {
+      background: #48bb78;
+      color: white;
+    }
+    
+    .reject-btn {
+      background: #f56565;
+      color: white;
+    }
+    
+    .server-locked-badge {
+      background: #e53e3e;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+  `;
+  document.head.appendChild(style);
+  
+  // Add refresh functionality
+  document.getElementById('refresh-pending-btn').addEventListener('click', loadPendingUsers);
+}
+
+    function togglePendingApprovalPanel() {
+    if (!pendingApprovalPanel) {
+        createPendingApprovalPanel();
+        loadPendingUsers();
+    } else {
+        pendingApprovalPanel.style.display = pendingApprovalPanel.style.display === 'none' ? 'block' : 'none';
+    }
+    }
+
+    async function loadPendingUsers() {
+    if (!isModerator) return;
+    
+    try {
+        const response = await fetch(`${SERVER_URL}/api/pending-users?clientId=${clientId}`);
+        const data = await response.json();
+        
+        if (data.pendingUsers) {
+        const pendingList = document.getElementById('pending-users-list');
+        pendingList.innerHTML = '';
+        
+        data.pendingUsers.forEach(user => {
+            const userItem = document.createElement('div');
+            userItem.classList.add('pending-user-item');
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.classList.add('pending-user-name');
+            nameSpan.textContent = user.username;
+            
+            const actionsDiv = document.createElement('div');
+            actionsDiv.classList.add('pending-user-actions');
+            
+            const approveBtn = document.createElement('button');
+            approveBtn.classList.add('approve-btn');
+            approveBtn.textContent = '✓';
+            approveBtn.title = 'Approve user';
+            approveBtn.onclick = () => handleUserRequest(user.clientId, true);
+            
+            const rejectBtn = document.createElement('button');
+            rejectBtn.classList.add('reject-btn');
+            rejectBtn.textContent = '✕';
+            rejectBtn.title = 'Reject user';
+            rejectBtn.onclick = () => handleUserRequest(user.clientId, false);
+            
+            actionsDiv.appendChild(approveBtn);
+            actionsDiv.appendChild(rejectBtn);
+            
+            userItem.appendChild(nameSpan);
+            userItem.appendChild(actionsDiv);
+            
+            pendingList.appendChild(userItem);
+        });
+        }
+    } catch (error) {
+        console.error('Error loading pending users:', error);
+    }
+    }
+
+    async function handleUserRequest(targetClientId, approve) {
+    try {
+        const response = await fetch(`${SERVER_URL}/api/handle-user-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, targetClientId, approve })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+        // Refresh the pending users list
+        loadPendingUsers();
+        } else {
+        alert('Failed to handle user request');
+        }
+    } catch (error) {
+        console.error('Error handling user request:', error);
+        alert('Error handling user request');
+    }
+    }
+
+    async function toggleServerLock(lockState) {
+    try {
+        const response = await fetch(`${SERVER_URL}/api/toggle-lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, lockState })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+        isServerLocked = data.isLocked;
+        updateServerLockDisplay();
+        addSystemMessage(`Server ${isServerLocked ? 'locked' : 'unlocked'}`);
+        
+        // Show/hide pending panel when locking
+        if (isServerLocked && isModerator) {
+            createPendingApprovalPanel();
+            loadPendingUsers();
+        }
+        } else {
+        alert('Failed to toggle server lock');
+        }
+    } catch (error) {
+        console.error('Toggle lock error:', error);
+        alert('Error toggling server lock');
+    }
+    }
+
+    function updateServerLockDisplay() {
+    const statusElement = document.getElementById('server-status');
+    if (!statusElement) return;
+    
+    if (isServerLocked) {
+        statusElement.innerHTML += ' <span class="server-locked-badge">LOCKED</span>';
+    }
+    }
+    
     function handleMessageInput(e) {
     const msg = messageInput.value;
     
@@ -219,6 +448,18 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         messageInput.value = '';
         toggleVisibility(false);
+        } else if (msg.startsWith('/lock')) {
+        e.preventDefault();
+        messageInput.value = '';
+        toggleServerLock(true);
+        } else if (msg.startsWith('/unlock')) {
+        e.preventDefault();
+        messageInput.value = '';
+        toggleServerLock(false);
+        } else if (msg.startsWith('/pending')) {
+        e.preventDefault();
+        messageInput.value = '';
+        togglePendingApprovalPanel();
         }
     }
     }
@@ -354,41 +595,78 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function joinChat() {
-        username = usernameInput.value.trim();
-        if (!username) return alert('Enter a username');
+    username = usernameInput.value.trim();
+    if (!username) return alert('Enter a username');
+    
+    // First check server status
+    try {
+        const statusResponse = await fetch(`${SERVER_URL}/api/status`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+        });
         
-        // First check server status
-        try {
-            const statusResponse = await fetch(`${SERVER_URL}/api/status`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+        if (!statusResponse.ok) {
+        throw new Error(`Server returned ${statusResponse.status}`);
+        }
+        
+        const statusData = await statusResponse.json();
+        
+        // Show server status to all users regardless of activation state
+        updateServerStatusDisplay(statusData.active);
+        
+        if (!statusData.active) {
+        showServerActivation();
+        return;
+        } else {
+        // Check if server is locked
+        const lockCheckResponse = await fetch(`${SERVER_URL}/api/check-lock`, {
+            method: 'GET'
+        });
+        
+        if (lockCheckResponse.ok) {
+            const lockData = await lockCheckResponse.json();
+            isServerLocked = lockData.isLocked;
+            
+            if (isServerLocked) {
+            // Show waiting message instead of proceeding
+            usernameSetup.style.display = 'none';
+            chatContainer.style.display = 'flex';
+            messagesContainer.innerHTML = '';
+            addSystemMessage('Server is locked. Waiting for moderator approval...');
+            
+            // Try to join which will put us in pending state
+            let encryptedUsername = username;
+            if (cryptoKey) {
+                encryptedUsername = "ENCRYPTED:" + await encryptText(username);
+            }
+            
+            const joinResponse = await fetch(`${SERVER_URL}/api/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: encryptedUsername })
             });
             
-            if (!statusResponse.ok) {
-                throw new Error(`Server returned ${statusResponse.status}`);
+            const joinData = await joinResponse.json();
+            if (joinData.isPending) {
+                clientId = joinData.clientId;
+                addSystemMessage(joinData.message);
             }
-            
-            const statusData = await statusResponse.json();
-            
-            // Show server status to all users regardless of activation state
-            updateServerStatusDisplay(statusData.active);
-            
-            if (!statusData.active) {
-                showServerActivation();
-                return;
-            } else {
-                // SERVER IS ACTIVE! Proceed to join.
-                await proceedWithJoin();
-            }
-        } catch (error) {
-            console.error('Status check error:', error);
-            addSystemMessage("Unable to connect to server. Server may be offline.");
-            // Show server as inactive on error
-            updateServerStatusDisplay(false);
             return;
+            }
         }
+        
+        // SERVER IS ACTIVE AND UNLOCKED! Proceed to join.
+        await proceedWithJoin();
+        }
+    } catch (error) {
+        console.error('Status check error:', error);
+        addSystemMessage("Unable to connect to server. Server may be offline.");
+        // Show server as inactive on error
+        updateServerStatusDisplay(false);
+        return;
+    }
     }
 
     // Add function to update server status display for all users
@@ -1024,7 +1302,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Remove from userRooms array
                 userRooms = userRooms.filter(room => room.id !== data.roomId);
                 break;
-        }
+            case 'server_lock_changed':
+                isServerLocked = data.isLocked;
+                updateServerLockDisplay();
+                addSystemMessage(`Server has been ${data.isLocked ? 'locked' : 'unlocked'}`);
+                break;   
+            case 'user_pending':
+                if (isModerator) {
+                    // Show notification and refresh pending list
+                    addSystemMessage(`User ${data.username} is waiting for approval`);
+                    if (pendingApprovalPanel) {
+                    loadPendingUsers();
+                    }
+                }
+                break;
+            case 'join_approved':
+                addSystemMessage('Your join request has been approved!');
+                // Refresh the page to properly join
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+                break;
+            case 'join_rejected':
+                addSystemMessage('Your join request was rejected.');
+                setTimeout(() => {
+                    window.location.href = "index.html";
+                }, 2000);
+                break;
+            }
     }
     
     async function updateUserList(usersArray) {
