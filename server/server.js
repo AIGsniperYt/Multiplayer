@@ -72,6 +72,7 @@ app.use(express.static(path.join(__dirname, '..')));
 // === Long polling storage ===
 const longPollingClients = new Map();
 const users = new Map();
+const pendingUsers = new Map(); // Users waiting for approval
 const messages = [];
 const rooms = new Map(); // New: Room storage
 
@@ -86,6 +87,7 @@ rooms.set('global', {
 // === Server Activation System ===
 let isServerActive = false;
 let activeModerator = null;
+let isServerLocked = false;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
 const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
 const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
@@ -228,11 +230,39 @@ app.post('/api/join', (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
+  // Check if server is locked
+  if (isServerLocked) {
+    const clientId = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Add to pending users instead of active users
+    pendingUsers.set(clientId, { 
+      username, 
+      clientId, 
+      requestedAt: Date.now() 
+    });
+    
+    console.log(`User pending approval: ${username} (clientId: ${clientId})`);
+    
+    // Notify moderators about the pending user
+    users.forEach((user, userId) => {
+      if (user.isMod && !user.isHidden) {
+        broadcastToClient(userId, 'user_pending', { username, clientId });
+      }
+    });
+    
+    return res.json({ 
+      success: false, 
+      isPending: true, 
+      clientId,
+      message: 'Server is locked. Waiting for moderator approval.' 
+    });
+  }
+
+  // === Original join logic (when unlocked) ===
   const clientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId, lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
-  // Add user to global room
   const globalRoom = rooms.get('global');
   globalRoom.users.add(clientId);
 
@@ -247,13 +277,14 @@ app.post('/api/join', (req, res) => {
     users: Array.from(users.values()).filter(u => globalRoom.users.has(u.clientId)).map(u => ({
       username: u.username,
       isMod: u.isMod,
-      isHidden: u.isHidden || false, // Add this line
+      isHidden: u.isHidden || false,
       joinedAt: u.joinedAt,
       clientId: u.clientId
     })),
     currentRoom: 'global'
   });
 });
+
 
 app.post('/api/send-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
@@ -384,6 +415,91 @@ app.post('/api/toggle-visibility', (req, res) => {
   });
   
   res.json({ success: true, isHidden });
+});
+
+// Lock/unlock server endpoint
+app.post('/api/toggle-lock', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, lockState } = req.body;
+  if (!clientId) return res.status(400).json({ error: 'Missing parameters' });
+  
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  isServerLocked = lockState;
+  
+  // Notify all users about the lock state change
+  broadcastToAll('server_lock_changed', { isLocked: isServerLocked });
+  
+  console.log(`Server ${isServerLocked ? 'locked' : 'unlocked'} by ${moderator.username}`);
+  res.json({ success: true, isLocked: isServerLocked });
+});
+
+// Get pending users endpoint
+app.get('/api/pending-users', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId } = req.query;
+  if (!clientId) return res.status(400).json({ error: 'Missing clientId' });
+  
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  const pendingList = Array.from(pendingUsers.values()).map(user => ({
+    username: user.username,
+    clientId: user.clientId,
+    requestedAt: user.requestedAt
+  }));
+  
+  res.json({ pendingUsers: pendingList });
+});
+
+// Approve/reject user endpoint
+app.post('/api/handle-user-request', (req, res) => {
+  if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
+
+  const { clientId, targetClientId, approve } = req.body;
+  if (!clientId || !targetClientId || typeof approve === 'undefined') {
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+  
+  const moderator = users.get(clientId);
+  if (!moderator || !moderator.isMod) return res.status(403).json({ error: 'Not a moderator' });
+
+  const pendingUser = pendingUsers.get(targetClientId);
+  if (!pendingUser) return res.status(404).json({ error: 'Pending user not found' });
+
+  if (approve) {
+    // Add user to global room
+    const globalRoom = rooms.get('global');
+    globalRoom.users.add(targetClientId);
+    
+    // Update user tracking
+    users.set(targetClientId, { 
+      ...pendingUser, 
+      joinedAt: Date.now(), 
+      lastCheck: Date.now() 
+    });
+    
+    longPollingClients.set(targetClientId, { res: null, lastCheck: Date.now() });
+    
+    console.log(`User approved: ${pendingUser.username} (clientId: ${targetClientId}) by ${moderator.username}`);
+    broadcastToRoom('global', 'user_joined', pendingUser.username);
+    broadcastUsersList('global');
+    
+    // Notify the approved user
+    broadcastToClient(targetClientId, 'join_approved', {});
+  } else {
+    // Notify the rejected user
+    broadcastToClient(targetClientId, 'join_rejected', {});
+    console.log(`User rejected: ${pendingUser.username} by ${moderator.username}`);
+  }
+  
+  // Remove from pending regardless of approval status
+  pendingUsers.delete(targetClientId);
+  
+  res.json({ success: true });
 });
 
 app.post('/api/become-mod', (req, res) => {
@@ -572,6 +688,10 @@ app.post('/api/server-message', (req, res) => {
   // Broadcast to the specific room
   broadcastToRoom(roomId, 'receive_message', serverMsgData);
   res.json({ success: true });
+});
+
+app.get('/api/check-lock', (req, res) => {
+  res.json({ isLocked: isServerLocked });
 });
 
 app.post('/api/create-dm-room', (req, res) => {
@@ -845,6 +965,19 @@ setInterval(() => {
     }
   });
 }, 10000);
+
+// === Add cleanup for pending users ===
+setInterval(() => {
+  const now = Date.now();
+  const PENDING_TIMEOUT = 300000; // 5 minutes
+  
+  pendingUsers.forEach((user, clientId) => {
+    if (now - user.requestedAt > PENDING_TIMEOUT) {
+      pendingUsers.delete(clientId);
+      console.log(`Pending user timed out: ${user.username}`);
+    }
+  });
+}, 60000); // Check every minute
 
 setInterval(() => {
   console.log(`Server status: active=${isServerActive}, users=${users.size}, messages=${messages.length}`);
