@@ -416,7 +416,14 @@ body {
 .dm-btn {
     color: #b9bbbe;
 }
-
+.server-locked-badge {
+    background: #ed8936;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-left: 10px;
+}
 .dm-btn:hover {
     color: white;
     background-color: #36393f;
