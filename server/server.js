@@ -455,7 +455,6 @@ app.get('/api/pending-users', (req, res) => {
   res.json({ pendingUsers: pendingList });
 });
 
-// Approve/reject user endpoint
 app.post('/api/handle-user-request', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -488,8 +487,12 @@ app.post('/api/handle-user-request', (req, res) => {
     broadcastToRoom('global', 'user_joined', pendingUser.username);
     broadcastUsersList('global');
     
-    // Notify the approved user
-    broadcastToClient(targetClientId, 'join_approved', {});
+    // Send proper join response to the approved user
+    broadcastToClient(targetClientId, 'join_approved', { 
+      clientId: targetClientId,
+      username: pendingUser.username,
+      roomId: 'global'
+    });
   } else {
     // Notify the rejected user
     broadcastToClient(targetClientId, 'join_rejected', {});
