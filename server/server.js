@@ -171,23 +171,38 @@ function cleanupEmptyDMRooms() {
         if (room.isDM && roomId !== 'global') {
             // Count active users (users that still exist in the users map)
             let activeUserCount = 0;
+            const activeUsers = [];
+            
             room.users.forEach(userId => {
                 if (users.has(userId)) {
                     activeUserCount++;
+                    activeUsers.push(userId);
                 }
             });
             
-            // If less than 2 active users, delete the room (DM requires at least 2 people)
+            // If less than 2 active users, close the room
             if (activeUserCount < 2) {
                 console.log(`Cleaning up DM room ${roomId} with only ${activeUserCount} active users`);
                 
-                // Notify remaining user (if any) that the room is being closed
-                room.users.forEach(userId => {
+                const globalRoom = rooms.get('global');
+                
+                // Move remaining user(s) to global room and notify them
+                activeUsers.forEach(userId => {
                     if (users.has(userId)) {
+                        // Add to global room
+                        globalRoom.users.add(userId);
+                        
+                        // Remove from DM room
+                        room.users.delete(userId);
+                        
+                        // Notify user about room closure
                         broadcastToClient(userId, 'room_closed', { 
                             roomId, 
                             reason: activeUserCount === 1 ? 'Other participant left' : 'Room has no participants'
                         });
+                        
+                        // Also notify them to switch to global
+                        broadcastToClient(userId, 'room_deleted', { roomId });
                     }
                 });
                 
@@ -196,6 +211,9 @@ function cleanupEmptyDMRooms() {
                 
                 // Broadcast to all that this room was deleted
                 broadcastToAll('room_deleted', { roomId });
+                
+                // Update user lists
+                broadcastUsersList('global');
             }
         }
     });
