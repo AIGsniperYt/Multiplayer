@@ -87,7 +87,6 @@ rooms.set('global', {
 let isServerActive = false;
 let activeModerator = null;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
-const SERVER_TIMEOUT = 120000; // 2 minutes
 const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
 const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
 const MOD_CHECK_INTERVAL = 10000; // check every 10s
@@ -100,12 +99,9 @@ setInterval(() => {
       deactivateServer();
     }
   } else if (isServerActive && !activeModerator) {
-    setTimeout(() => {
-      if (!activeModerator) {
-        console.log("Server timeout - no moderator present");
-        deactivateServer();
-      }
-    }, SERVER_TIMEOUT);
+    // No active moderator but server is active - deactivate immediately
+    console.log("No active moderator - deactivating server");
+    deactivateServer();
   }
 }, MOD_CHECK_INTERVAL);
 
@@ -118,34 +114,54 @@ function activateServer(modClientId) {
 
 function deactivateServer() {
   isServerActive = false;
+  
+  // Store the list of users to kick before broadcasting
+  const usersToKick = Array.from(users.keys());
+  const moderatorName = activeModerator ? users.get(activeModerator)?.username : 'Unknown';
+  
   activeModerator = null;
   console.log("Server deactivated - requires moderator");
-  
+
   // First broadcast the deactivation message
   broadcastToAll('server_deactivated', {});
   
-  // Then after a short delay, kick all users
-  setTimeout(() => {
-    users.forEach((user, userId) => {
-      broadcastToClient(userId, 'kicked', { reason: 'Server deactivated due to moderator leaving' });
-      users.delete(userId);
-      longPollingClients.delete(userId);
-    });
-    
-    // Clear all messages and rooms (except global)
-    messages.length = 0;
-    rooms.forEach((room, roomId) => {
-      if (roomId !== 'global') {
-        rooms.delete(roomId);
-      } else {
-        // Clear global room messages but keep the room
-        room.messages.length = 0;
-        room.users.clear();
+  // Kick all users immediately (no delay needed)
+  usersToKick.forEach(userId => {
+    // Send kick notification
+    const client = longPollingClients.get(userId);
+    if (client && client.res && !client.res.finished) {
+      try {
+        client.res.json({ 
+          events: [{ 
+            event: 'kicked', 
+            data: { reason: 'Server deactivated due to moderator leaving' },
+            timestamp: Date.now()
+          }], 
+          timestamp: Date.now() 
+        });
+      } catch (e) {
+        console.log('Error sending kick notification:', e);
       }
-    });
+    }
     
-    console.log("All users kicked due to server deactivation");
-  }, 2000); // 2 second delay
+    // Remove from tracking
+    users.delete(userId);
+    longPollingClients.delete(userId);
+  });
+  
+  // Clear all messages and rooms (except global)
+  messages.length = 0;
+  rooms.forEach((room, roomId) => {
+    if (roomId !== 'global') {
+      rooms.delete(roomId);
+    } else {
+      // Clear global room messages but keep the room
+      room.messages.length = 0;
+      room.users.clear();
+    }
+  });
+  
+  console.log(`All users kicked due to server deactivation by ${moderatorName}`);
 }
 
 // === DM Room Cleanup Function ===
