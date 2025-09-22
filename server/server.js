@@ -324,12 +324,20 @@ app.post('/api/get-updates', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
   const { clientId } = req.body;
-  if (!clientId || !users.has(clientId)) {
+  
+  // Allow pending users to poll for updates (they need to receive approval/rejection events)
+  const isPendingUser = clientId && clientId.startsWith('pending_') && pendingUsers.has(clientId);
+  const isActiveUser = clientId && users.has(clientId);
+  
+  if (!isPendingUser && !isActiveUser) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  const userData = users.get(clientId);
-  if (userData) userData.lastCheck = Date.now();
+  // Update last check time for active users
+  if (isActiveUser) {
+    const userData = users.get(clientId);
+    if (userData) userData.lastCheck = Date.now();
+  }
   
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
   setTimeout(() => {
@@ -945,6 +953,16 @@ function broadcastUsersList(roomId) {
 // === Cleanup ===
 setInterval(() => {
   const now = Date.now();
+  
+  // Clean up pending users first (shorter timeout)
+  pendingUsers.forEach((user, clientId) => {
+    if (now - user.requestedAt > 300000) { // 5 minutes for pending users
+      pendingUsers.delete(clientId);
+      console.log(`Pending user timed out: ${user.username}`);
+    }
+  });
+  
+  // Clean up long polling clients and inactive users
   longPollingClients.forEach((client, clientId) => {
     if (now - (client.lastCheck || 0) > CLIENT_TIMEOUT) {
       if (client.res && !client.res.finished) {
