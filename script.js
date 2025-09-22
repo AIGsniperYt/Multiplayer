@@ -474,6 +474,46 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     }
+    // Special polling function for pending users
+    function startPollingForApproval() {
+        fetchUpdatesForApproval();
+    }
+    async function fetchUpdatesForApproval() {
+        try {
+            const response = await fetch(`${SERVER_URL}/api/get-updates`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId, lastUpdate: lastUpdateTime })
+            });
+            
+            if (!response.ok) {
+                if (response.status === 403) {
+                    addSystemMessage("Disconnected from server. Please refresh.");
+                    return;
+                }
+                throw new Error('Server error');
+            }
+            
+            const data = await response.json();
+            if (data.events?.length) {
+                for (const e of data.events) {
+                    await handleServerEvent(e.event, e.data);
+                    
+                    // If we received an approval or rejection, stop this special polling
+                    if (e.event === 'join_approved' || e.event === 'join_rejected') {
+                        return; // Exit the approval polling loop
+                    }
+                }
+            }
+            lastUpdateTime = data.timestamp || Date.now();
+            
+            // Continue polling until we get an approval/rejection
+            setTimeout(fetchUpdatesForApproval, 1000);
+        } catch (err) {
+            console.error('Approval polling error:', err);
+            setTimeout(fetchUpdatesForApproval, 5000);
+        }
+    }
 
     async function toggleVisibility(isHidden) {
     try {
@@ -653,7 +693,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         const joinData = await joinResponse.json();
                         if (joinData.isPending) {
                             clientId = joinData.clientId;
-                            // Don't add another system message - we already showed one
+                            // Start polling to wait for approval/rejection
+                            startPollingForApproval();
                         }
                         return;
                     }
@@ -669,6 +710,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
     }
+
     function updateServerStatusDisplay(isActive) {
         if (isActive) {
             if (isServerLocked) {
@@ -684,8 +726,56 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     updateServerStatusDisplay(false);
-    // Extract the joining logic from joinChat into a separate function
+
     async function proceedWithJoin() {
+        // If we're joining after approval, we already have clientId and username
+        if (clientId && username && !isModerator) {
+            usernameSetup.style.display = 'none';
+            chatContainer.style.display = 'flex';
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+            messageInput.focus();
+            addSystemMessage(`Welcome, ${username}!`);
+            
+            // Load user's rooms
+            await loadUserRooms();
+            
+            // Fetch active users + recent messages for current room
+            try {
+                const usersRes = await fetch(`${SERVER_URL}/api/active-users?roomId=${currentRoom}`);
+                const usersData = await usersRes.json();
+                updateUserList(usersData.users);
+                document.getElementById('users-online').textContent = `${usersData.users.length} users online`;
+            } catch (e) {
+                console.error("Failed to fetch active users:", e);
+            }
+
+            try {
+                // Join the current room to get messages
+                const joinRes = await fetch(`${SERVER_URL}/api/join-room`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId, roomId: currentRoom })
+                });
+                
+                const joinData = await joinRes.json();
+                if (joinData.success) {
+                    for (const m of joinData.messages) {
+                        const decryptedUsername = await decryptText(m.username);
+                        const decryptedMessage = await decryptText(m.message);
+                        addMessage(decryptedUsername, decryptedMessage, m.timestamp, m.id, m.roomId !== 'global');
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch messages:", e);
+            }
+
+            startPolling();
+            startUserListRefresh();
+            startRoomListRefresh();
+            return;
+        }
+
         // If we already became mod during activation, don't call /api/join again
         if (isModerator && clientId) {
             usernameSetup.style.display = 'none';
@@ -734,7 +824,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // --- Normal join flow for regular users ---
+        // --- Normal join flow for regular users (unlocked server) ---
         let encryptedUsername = username;
         if (cryptoKey) {
             encryptedUsername = "ENCRYPTED:" + await encryptText(username);
@@ -773,6 +863,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 startPolling();
                 startUserListRefresh();
+                startRoomListRefresh();
             } else {
                 alert('Failed to join: ' + data.error);
             }
@@ -1330,42 +1421,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 break;
             case 'join_approved':
-                // Properly handle the join approval
+                // Store the approved clientId and username
                 clientId = data.clientId;
-                username = await decryptText(data.username); // Decrypt the stored username
                 
-                // Hide the waiting message and show the chat
-                usernameSetup.style.display = 'none';
-                chatContainer.style.display = 'flex';
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                messageInput.focus();
+                // Decrypt the stored username
+                let decryptedUsername = data.username;
+                if (data.username.startsWith('ENCRYPTED:')) {
+                    decryptedUsername = await decryptText(data.username);
+                }
+                username = decryptedUsername;
                 
+                // Clear the waiting message and proceed with normal join flow
+                messagesContainer.innerHTML = '';
                 addSystemMessage('Your join request has been approved! Welcome to the chat.');
                 
-                // Load user's rooms and start polling
-                await loadUserRooms();
-                startPolling();
-                startUserListRefresh();
-                startRoomListRefresh();
-                
-                // Fetch active users
-                try {
-                    const usersRes = await fetch(`${SERVER_URL}/api/active-users?roomId=${currentRoom}`);
-                    const usersData = await usersRes.json();
-                    updateUserList(usersData.users);
-                    document.getElementById('users-online').textContent = `${usersData.users.length} users online`;
-                } catch (e) {
-                    console.error("Failed to fetch active users:", e);
-                }
+                // Use the existing proceedWithJoin function to avoid code duplication
+                await proceedWithJoin();
                 break;
             case 'join_rejected':
-                addSystemMessage('Your join request was rejected, pick a better name');
+                addSystemMessage('Your join request was rejected by a moderator.');
                 setTimeout(() => {
-                    window.location.href = "index.html";
+                    window.location.href = "kicked.html";
                 }, 3000);
                 break;
-            }
+        }
     }
     
     async function updateUserList(usersArray) {
