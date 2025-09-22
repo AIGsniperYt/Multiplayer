@@ -161,8 +161,8 @@ function cleanupEmptyDMRooms() {
                 }
             });
             
-            // If only one or fewer active users, delete the room
-            if (activeUserCount <= 1) {
+            // If less than 2 active users, delete the room (DM requires at least 2 people)
+            if (activeUserCount < 2) {
                 console.log(`Cleaning up DM room ${roomId} with only ${activeUserCount} active users`);
                 
                 // Notify remaining user (if any) that the room is being closed
@@ -170,7 +170,7 @@ function cleanupEmptyDMRooms() {
                     if (users.has(userId)) {
                         broadcastToClient(userId, 'room_closed', { 
                             roomId, 
-                            reason: 'Other participant left' 
+                            reason: activeUserCount === 1 ? 'Other participant left' : 'Room has no participants'
                         });
                     }
                 });
