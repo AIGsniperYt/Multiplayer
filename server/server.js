@@ -478,7 +478,8 @@ app.post('/api/handle-user-request', (req, res) => {
     users.set(targetClientId, { 
       ...pendingUser, 
       joinedAt: Date.now(), 
-      lastCheck: Date.now() 
+      lastCheck: Date.now(),
+      isMod: false // Ensure they're not a mod unless specifically set
     });
     
     longPollingClients.set(targetClientId, { res: null, lastCheck: Date.now() });
