@@ -908,9 +908,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
             case 'server_deactivated':
                 updateServerStatusDisplay(false);
-                addSystemMessage('Server has been deactivated. Please refresh.');
+                addSystemMessage('Server has been deactivated.');
                 messageInput.disabled = true;
                 sendButton.disabled = true;
+                setTimeout(() => {
+                    window.location.href = "kicked.html";
+                }, 1500);
                 break;
             case 'user_joined': 
                 const joinedUser = await decryptText(data);
