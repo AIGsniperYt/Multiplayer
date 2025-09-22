@@ -1004,6 +1004,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Remove from userRooms array
                 userRooms = userRooms.filter(room => room.id !== data.roomId);
                 break;
+            case 'room_closed':
+                if (data.roomId === currentRoom) {
+                    addSystemMessage(`DM closed: ${data.reason}`);
+                    // Switch back to global chat if we were in the closed room
+                    setTimeout(() => {
+                        switchChannel('global', 'Global Chat', false);
+                    }, 2000);
+                }
+                
+                // Remove the room from the UI
+                if (roomElement) {
+                    roomElement.remove();
+                }
+                
+                // Remove from userRooms array
+                userRooms = userRooms.filter(room => room.id !== data.roomId);
+                break;
         }
     }
     
