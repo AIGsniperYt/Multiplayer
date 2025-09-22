@@ -148,6 +148,43 @@ function deactivateServer() {
   }, 2000); // 2 second delay
 }
 
+// === DM Room Cleanup Function ===
+function cleanupEmptyDMRooms() {
+    rooms.forEach((room, roomId) => {
+        // Only check DM rooms (not global or other room types)
+        if (room.isDM && roomId !== 'global') {
+            // Count active users (users that still exist in the users map)
+            let activeUserCount = 0;
+            room.users.forEach(userId => {
+                if (users.has(userId)) {
+                    activeUserCount++;
+                }
+            });
+            
+            // If only one or fewer active users, delete the room
+            if (activeUserCount <= 1) {
+                console.log(`Cleaning up DM room ${roomId} with only ${activeUserCount} active users`);
+                
+                // Notify remaining user (if any) that the room is being closed
+                room.users.forEach(userId => {
+                    if (users.has(userId)) {
+                        broadcastToClient(userId, 'room_closed', { 
+                            roomId, 
+                            reason: 'Other participant left' 
+                        });
+                    }
+                });
+                
+                // Delete the room
+                rooms.delete(roomId);
+                
+                // Broadcast to all that this room was deleted
+                broadcastToAll('room_deleted', { roomId });
+            }
+        }
+    });
+}
+
 // === HTTP endpoints ===
 app.post('/api/join', (req, res) => {
   if (!isServerActive) {
@@ -257,7 +294,11 @@ app.post('/api/leave', (req, res) => {
     users.delete(clientId);
     longPollingClients.delete(clientId);
     console.log(`User left via leave API: ${user.username} (clientId: ${clientId})`);
-    broadcastUsersList('global'); // Update global user list
+    
+    // NEW: Clean up empty DM rooms
+    cleanupEmptyDMRooms();
+    
+    broadcastUsersList('global');
   }
   res.json({ success: true });
 });
@@ -371,6 +412,10 @@ app.post('/api/kick-user', (req, res) => {
     users.delete(userClientId);
     longPollingClients.delete(userClientId);
     console.log(`User kicked: ${targetUsername} by ${moderator.username}`);
+    
+    // NEW: Clean up empty DM rooms
+    cleanupEmptyDMRooms();
+    
     broadcastToAll('user_left', userToKick.username);
     broadcastUsersList();
     return res.json({ success: true });
@@ -495,7 +540,6 @@ app.post('/api/server-message', (req, res) => {
   res.json({ success: true });
 });
 
-// In the create-dm-room endpoint, modify room naming:
 app.post('/api/create-dm-room', (req, res) => {
     if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -552,7 +596,6 @@ app.post('/api/create-dm-room', (req, res) => {
     });
 });
 
-// Update the /api/room-display-name endpoint
 app.get('/api/room-display-name', async (req, res) => {
     if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -758,6 +801,10 @@ setInterval(() => {
         }
         users.delete(clientId);
         console.log(`User cleaned up due to inactivity: ${user.username} (clientId: ${clientId})`);
+        
+        // NEW: Clean up empty DM rooms
+        cleanupEmptyDMRooms();
+        
         broadcastToAll('user_left', user.username);
         broadcastUsersList();
       }
