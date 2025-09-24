@@ -488,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (!response.ok) {
                 if (response.status === 403) {
-                    addSystemMessage("Disconnected from server. Please refresh.");
+                    addSystemMessage("Server is no longer active. Please refresh.");
                     return;
                 }
                 throw new Error('Server error');
@@ -507,8 +507,10 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             lastUpdateTime = data.timestamp || Date.now();
             
-            // Continue polling until we get an approval/rejection
-            setTimeout(fetchUpdatesForApproval, 1000);
+            // Only continue polling if we haven't been approved/rejected yet
+            if (clientId && clientId.startsWith('pending_')) {
+                setTimeout(fetchUpdatesForApproval, 1000);
+            }
         } catch (err) {
             console.error('Approval polling error:', err);
             setTimeout(fetchUpdatesForApproval, 5000);
@@ -695,6 +697,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             clientId = joinData.clientId;
                             // Start polling to wait for approval/rejection
                             startPollingForApproval();
+                        } else {
+                            // If not pending, proceed normally
+                            await proceedWithJoin();
                         }
                         return;
                     }
@@ -1422,7 +1427,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
             case 'join_approved':
                 // Store the approved clientId and username
-                clientId = data.clientId;
+                clientId = data.clientId; // This is the NEW clientId
                 
                 // Decrypt the stored username
                 let decryptedUsername = data.username;
@@ -1431,15 +1436,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 username = decryptedUsername;
                 
+                // Add the user to the users map with the new clientId
+                if (!users.has(clientId)) {
+                    users.set(clientId, { 
+                        username: data.username, 
+                        isMod: false, 
+                        joinedAt: Date.now(), 
+                        clientId: clientId,
+                        lastCheck: Date.now() 
+                    });
+                }
+                
+                // Add to global room
+                const globalRoom = rooms.get('global');
+                globalRoom.users.add(clientId);
+                
                 // Clear the waiting message and proceed with normal join flow
                 messagesContainer.innerHTML = '';
                 addSystemMessage('Your join request has been approved! Welcome to the chat.');
                 
-                // Use the existing proceedWithJoin function to avoid code duplication
+                // Stop the approval polling and start normal polling
                 await proceedWithJoin();
                 break;
             case 'join_rejected':
-                addSystemMessage('Your join request was rejected by a moderator.');
+                addSystemMessage('Your join request was rejected.');
                 setTimeout(() => {
                     window.location.href = "kicked.html";
                 }, 3000);
