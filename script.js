@@ -508,6 +508,7 @@ document.addEventListener('DOMContentLoaded', function() {
             lastUpdateTime = data.timestamp || Date.now();
             
             // Only continue polling if we haven't been approved/rejected yet
+            // AND we're still a pending user
             if (clientId && clientId.startsWith('pending_')) {
                 setTimeout(fetchUpdatesForApproval, 1000);
             }
@@ -672,6 +673,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (lockCheckResponse.ok) {
                     const lockData = await lockCheckResponse.json();
                     isServerLocked = lockData.isLocked;
+                    updateServerStatusDisplay(true); // Add this line to update the display
                     
                     if (isServerLocked) {
                         // Show waiting message
@@ -717,6 +719,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateServerStatusDisplay(isActive) {
+        if (!serverStatus) return;
+        
         if (isActive) {
             if (isServerLocked) {
                 serverStatus.textContent = 'Server Active (Locked)';
@@ -1436,26 +1440,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 username = decryptedUsername;
                 
-                // Add the user to the users map with the new clientId
-                if (!users.has(clientId)) {
-                    users.set(clientId, { 
-                        username: data.username, 
-                        isMod: false, 
-                        joinedAt: Date.now(), 
-                        clientId: clientId,
-                        lastCheck: Date.now() 
-                    });
-                }
-                
-                // Add to global room
-                const globalRoom = rooms.get('global');
-                globalRoom.users.add(clientId);
-                
                 // Clear the waiting message and proceed with normal join flow
                 messagesContainer.innerHTML = '';
                 addSystemMessage('Your join request has been approved! Welcome to the chat.');
                 
-                // Stop the approval polling and start normal polling
+                // IMPORTANT: Update the server status display to show active (not locked)
+                updateServerStatusDisplay(true);
+                isServerLocked = false;
+                
+                // Stop the approval polling and start normal join flow
                 await proceedWithJoin();
                 break;
             case 'join_rejected':
