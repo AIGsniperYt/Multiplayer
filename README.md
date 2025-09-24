@@ -16,4 +16,6 @@ The Moderator has a few commands for use:
 /kickall
 /clear
 /s [server_message]
+/lock # slow down large traffics
+/unlock # undo the lock
 ```
