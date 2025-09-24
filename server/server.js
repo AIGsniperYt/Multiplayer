@@ -325,7 +325,7 @@ app.post('/api/get-updates', (req, res) => {
 
   const { clientId } = req.body;
   
-  // Allow pending users to poll for updates (they need to receive approval/rejection events)
+  // Allow pending users to poll for updates
   const isPendingUser = clientId && clientId.startsWith('pending_') && pendingUsers.has(clientId);
   const isActiveUser = clientId && users.has(clientId);
   
@@ -333,20 +333,19 @@ app.post('/api/get-updates', (req, res) => {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Update last check time for active users
-  if (isActiveUser) {
-    const userData = users.get(clientId);
-    if (userData) userData.lastCheck = Date.now();
-  }
-  
+  // Store the pending user's response object so we can send events to them
   longPollingClients.set(clientId, { res, lastCheck: Date.now() });
+  
+  // Set timeout for pending users too (shorter timeout)
+  const timeout = isPendingUser ? 15000 : 25000; // 15s for pending, 25s for active
+  
   setTimeout(() => {
     const client = longPollingClients.get(clientId);
     if (client && client.res === res) {
       res.json({ events: [], timestamp: Date.now() });
       longPollingClients.delete(clientId);
     }
-  }, 25000);
+  }, timeout);
 });
 
 app.post('/api/leave', (req, res) => {
@@ -478,32 +477,34 @@ app.post('/api/handle-user-request', (req, res) => {
   if (!pendingUser) return res.status(404).json({ error: 'Pending user not found' });
 
   if (approve) {
+    // Generate a new clientId for the approved user (convert from pending_ to regular)
+    const newClientId = `lp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
     // Add user to global room
     const globalRoom = rooms.get('global');
-    globalRoom.users.add(targetClientId);
+    globalRoom.users.add(newClientId);
     
-    // Update user tracking
-    users.set(targetClientId, { 
-      ...pendingUser, 
+    // Update user tracking with new clientId
+    users.set(newClientId, { 
+      username: pendingUser.username,
       joinedAt: Date.now(), 
       lastCheck: Date.now(),
-      isMod: false // Ensure they're not a mod unless specifically set
+      isMod: false,
+      clientId: newClientId
     });
     
-    longPollingClients.set(targetClientId, { res: null, lastCheck: Date.now() });
-    
-    console.log(`User approved: ${pendingUser.username} (clientId: ${targetClientId}) by ${moderator.username}`);
+    console.log(`User approved: ${pendingUser.username} (new clientId: ${newClientId}) by ${moderator.username}`);
     broadcastToRoom('global', 'user_joined', pendingUser.username);
     broadcastUsersList('global');
     
-    // Send proper join response to the approved user
+    // Send approval to the pending user using their OLD clientId
     broadcastToClient(targetClientId, 'join_approved', { 
-      clientId: targetClientId,
+      clientId: newClientId, // Send the NEW clientId
       username: pendingUser.username,
       success: true
     });
   } else {
-    // Notify the rejected user
+    // Notify the rejected user using their pending clientId
     broadcastToClient(targetClientId, 'join_rejected', { 
       reason: 'Join request rejected by moderator'
     });
