@@ -75,6 +75,7 @@ const users = new Map();
 const pendingUsers = new Map(); // Users waiting for approval
 const messages = [];
 const rooms = new Map(); // New: Room storage
+const chessGames = new Map(); // gameId -> gameState
 
 rooms.set('global', {
   id: 'global',
@@ -222,6 +223,162 @@ function cleanupEmptyDMRooms() {
 }
 
 // === HTTP endpoints ===
+
+// Create a new chess game
+app.post('/api/create-chess-game', (req, res) => {
+    const { clientId, opponentId, challengerName } = req.body;
+    
+    if (!clientId || !opponentId) {
+        return res.status(400).json({ error: 'Missing clientId or opponentId' });
+    }
+
+    // Verify both users are online
+    const challenger = clients.get(clientId);
+    const opponent = clients.get(opponentId);
+    
+    if (!challenger || !opponent) {
+        return res.status(404).json({ error: 'User not found or offline' });
+    }
+
+    const gameId = `chess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const gameState = {
+        id: gameId,
+        playerWhite: clientId,
+        playerBlack: opponentId,
+        whiteName: challengerName,
+        blackName: opponent.username,
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        moves: [],
+        status: 'waiting', // waiting, active, finished
+        result: null,
+        createdAt: Date.now(),
+        lastMoveTime: Date.now()
+    };
+
+    chessGames.set(gameId, gameState);
+
+    // Notify the opponent
+    addEventToUser(opponentId, {
+        event: 'chess_invitation',
+        data: {
+            gameId,
+            challenger: challengerName,
+            challengerId: clientId
+        }
+    });
+
+    res.json({ success: true, gameId, gameState });
+});
+
+// Accept chess invitation
+app.post('/api/accept-chess-invitation', (req, res) => {
+    const { clientId, gameId } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not your invitation' });
+    }
+
+    game.status = 'active';
+    
+    // Notify both players
+    addEventToUser(game.playerWhite, {
+        event: 'chess_game_started',
+        data: { gameId, gameState: game }
+    });
+    
+    addEventToUser(game.playerBlack, {
+        event: 'chess_game_started',
+        data: { gameId, gameState: game }
+    });
+
+    res.json({ success: true, gameState: game });
+});
+
+// Make a move
+app.post('/api/chess-move', (req, res) => {
+    const { clientId, gameId, move } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (game.status !== 'active') {
+        return res.status(400).json({ error: 'Game not active' });
+    }
+
+    // Validate it's the player's turn
+    const currentTurn = game.fen.includes(' w ') ? 'white' : 'black';
+    const currentPlayer = currentTurn === 'white' ? game.playerWhite : game.playerBlack;
+    
+    if (currentPlayer !== clientId) {
+        return res.status(403).json({ error: 'Not your turn' });
+    }
+
+    // Validate move (basic validation - you'd want more robust validation)
+    if (!move.from || !move.to) {
+        return res.status(400).json({ error: 'Invalid move format' });
+    }
+
+    // Add move to game history
+    game.moves.push({
+        move,
+        player: clientId,
+        timestamp: Date.now()
+    });
+
+    // Update FEN (you'd want proper FEN generation here)
+    // For now, just toggle turn
+    game.fen = game.fen.replace(/ w /, ' b ').replace(/ b /, ' w ');
+    game.lastMoveTime = Date.now();
+
+    // Determine opponent
+    const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
+
+    // Notify opponent
+    addEventToUser(opponentId, {
+        event: 'chess_move_made',
+        data: {
+            gameId,
+            move: move,
+            newFen: game.fen,
+            gameState: game
+        }
+    });
+
+    res.json({ success: true, gameState: game });
+});
+
+// Get game state
+app.get('/api/chess-game/:gameId', (req, res) => {
+    const game = chessGames.get(req.params.gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    res.json({ success: true, gameState: game });
+});
+
+// Get user's active chess games
+app.get('/api/user-chess-games/:clientId', (req, res) => {
+    const clientId = req.params.clientId;
+    const userGames = [];
+    
+    for (const [gameId, game] of chessGames) {
+        if (game.playerWhite === clientId || game.playerBlack === clientId) {
+            userGames.push(game);
+        }
+    }
+    
+    res.json({ success: true, games: userGames });
+});
+
+
 app.post('/api/join', (req, res) => {
   if (!isServerActive) {
     return res.status(403).json({ error: 'Server not active. Requires moderator activation.' });
@@ -284,7 +441,6 @@ app.post('/api/join', (req, res) => {
     currentRoom: 'global'
   });
 });
-
 
 app.post('/api/send-message', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
@@ -424,7 +580,6 @@ app.post('/api/toggle-visibility', (req, res) => {
   res.json({ success: true, isHidden });
 });
 
-// Lock/unlock server endpoint
 app.post('/api/toggle-lock', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
@@ -443,7 +598,6 @@ app.post('/api/toggle-lock', (req, res) => {
   res.json({ success: true, isLocked: isServerLocked });
 });
 
-// Get pending users endpoint
 app.get('/api/pending-users', (req, res) => {
   if (!isServerActive) return res.status(403).json({ error: 'Server not active' });
 
