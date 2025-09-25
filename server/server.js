@@ -91,7 +91,7 @@ let isServerActive = false;
 let activeModerator = null;
 let isServerLocked = false;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
-const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
+const MOD_TIMEOUT = 1800000;   // 30 mins for moderators (more tolerant)
 const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
 const MOD_CHECK_INTERVAL = 10000; // check every 10s
 
@@ -398,7 +398,7 @@ app.post('/api/join', (req, res) => {
     return res.status(403).json({ error: 'Server not active. Requires moderator activation.' });
   }
 
-  const { username } = req.body;
+  const { username, isChessClient } = req.body; // ← ADD isChessClient to destructuring
   if (!username) return res.status(400).json({ error: 'Username required' });
 
   // Check if server is locked
@@ -409,15 +409,16 @@ app.post('/api/join', (req, res) => {
     pendingUsers.set(clientId, { 
       username, 
       clientId, 
-      requestedAt: Date.now() 
+      requestedAt: Date.now(),
+      isChessClient: !!isChessClient // ← Store chess client status for pending users too
     });
     
-    console.log(`User pending approval: ${username} (clientId: ${clientId})`);
+    console.log(`User pending approval: ${username} (clientId: ${clientId}, chessClient: ${isChessClient})`);
     
     // Notify moderators about the pending user
     users.forEach((user, userId) => {
       if (user.isMod && !user.isHidden) {
-        broadcastToClient(userId, 'user_pending', { username, clientId });
+        broadcastToClient(userId, 'user_pending', { username, clientId, isChessClient });
       }
     });
     
@@ -434,7 +435,7 @@ app.post('/api/join', (req, res) => {
   users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId, lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
-  if (isChessClient) {
+  if (isChessClient) { // ← Now this variable is properly defined
       clients.set(clientId, { 
           username, 
           clientId, 
@@ -446,7 +447,7 @@ app.post('/api/join', (req, res) => {
   const globalRoom = rooms.get('global');
   globalRoom.users.add(clientId);
 
-  console.log(`User joined: ${username} (clientId: ${clientId})`);
+  console.log(`User joined: ${username} (clientId: ${clientId}, chessClient: ${isChessClient})`);
   broadcastToRoom('global', 'user_joined', username);
   broadcastUsersList('global');
 
@@ -669,6 +670,16 @@ app.post('/api/handle-user-request', (req, res) => {
       isMod: false,
       clientId: newClientId
     });
+
+    // Add to chess clients if this was a chess client
+    if (pendingUser.isChessClient) {
+      clients.set(newClientId, { 
+        username: pendingUser.username, 
+        clientId: newClientId, 
+        isChessClient: true,
+        joinedAt: Date.now() 
+      });
+    }
     
     console.log(`User approved: ${pendingUser.username} (new clientId: ${newClientId}) by ${moderator.username}`);
     broadcastToRoom('global', 'user_joined', pendingUser.username);
