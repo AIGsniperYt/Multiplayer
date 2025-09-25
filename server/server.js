@@ -434,6 +434,15 @@ app.post('/api/join', (req, res) => {
   users.set(clientId, { username, isMod: false, joinedAt: Date.now(), clientId, lastCheck: Date.now() });
   longPollingClients.set(clientId, { res: null, lastCheck: Date.now() });
 
+  if (isChessClient) {
+      clients.set(clientId, { 
+          username, 
+          clientId, 
+          isChessClient: true,
+          joinedAt: Date.now() 
+      });
+  }
+
   const globalRoom = rooms.get('global');
   globalRoom.users.add(clientId);
 
