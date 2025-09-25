@@ -76,6 +76,7 @@ const pendingUsers = new Map(); // Users waiting for approval
 const messages = [];
 const rooms = new Map(); // New: Room storage
 const chessGames = new Map(); // gameId -> gameState
+const clients = new Map(); // For tracking connected clients
 
 rooms.set('global', {
   id: 'global',
@@ -90,7 +91,7 @@ let isServerActive = false;
 let activeModerator = null;
 let isServerLocked = false;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
-const MOD_TIMEOUT = 1800000;       // 30 mins for moderators (more tolerant)
+const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
 const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
 const MOD_CHECK_INTERVAL = 10000; // check every 10s
 
@@ -232,9 +233,9 @@ app.post('/api/create-chess-game', (req, res) => {
         return res.status(400).json({ error: 'Missing clientId or opponentId' });
     }
 
-    // Verify both users are online
-    const challenger = clients.get(clientId);
-    const opponent = clients.get(opponentId);
+    // Use clients map instead of users map for chess players
+    const challenger = clients.get(clientId); // Changed from users to clients
+    const opponent = clients.get(opponentId); // Changed from users to clients
     
     if (!challenger || !opponent) {
         return res.status(404).json({ error: 'User not found or offline' });
@@ -270,7 +271,6 @@ app.post('/api/create-chess-game', (req, res) => {
 
     res.json({ success: true, gameId, gameState });
 });
-
 // Accept chess invitation
 app.post('/api/accept-chess-invitation', (req, res) => {
     const { clientId, gameId } = req.body;
@@ -280,22 +280,31 @@ app.post('/api/accept-chess-invitation', (req, res) => {
         return res.status(404).json({ error: 'Game not found' });
     }
 
+    // Verify user exists in clients map
+    if (!clients.has(clientId)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
     if (game.playerBlack !== clientId) {
         return res.status(403).json({ error: 'Not your invitation' });
     }
 
     game.status = 'active';
     
-    // Notify both players
-    addEventToUser(game.playerWhite, {
-        event: 'chess_game_started',
-        data: { gameId, gameState: game }
-    });
+    // Notify both players (check if they exist in clients first)
+    if (clients.has(game.playerWhite)) {
+        addEventToUser(game.playerWhite, {
+            event: 'chess_game_started',
+            data: { gameId, gameState: game }
+        });
+    }
     
-    addEventToUser(game.playerBlack, {
-        event: 'chess_game_started',
-        data: { gameId, gameState: game }
-    });
+    if (clients.has(game.playerBlack)) {
+        addEventToUser(game.playerBlack, {
+            event: 'chess_game_started',
+            data: { gameId, gameState: game }
+        });
+    }
 
     res.json({ success: true, gameState: game });
 });
@@ -311,6 +320,11 @@ app.post('/api/chess-move', (req, res) => {
 
     if (game.status !== 'active') {
         return res.status(400).json({ error: 'Game not active' });
+    }
+
+    // Verify user exists in clients map
+    if (!clients.has(clientId)) {
+        return res.status(404).json({ error: 'User not found' });
     }
 
     // Validate it's the player's turn
@@ -1163,6 +1177,5 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
-
 
 
