@@ -90,7 +90,7 @@ let isServerActive = false;
 let activeModerator = null;
 let isServerLocked = false;
 const SERVER_ACTIVATION_PASSWORD = "esports2024";
-const MOD_TIMEOUT = 90000;       // 90 seconds for moderators (more tolerant)
+const MOD_TIMEOUT = 1800000;       // 30 mins for moderators (more tolerant)
 const CLIENT_TIMEOUT = 60000;    // 60 seconds for normal clients
 const MOD_CHECK_INTERVAL = 10000; // check every 10s
 
@@ -1163,5 +1163,6 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+
 
 
