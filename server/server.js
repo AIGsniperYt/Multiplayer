@@ -225,7 +225,7 @@ function cleanupEmptyDMRooms() {
 
 // === HTTP endpoints ===
 
-// Create a new chess game
+// Create a new chess game - FIXED VERSION
 app.post('/api/create-chess-game', (req, res) => {
     const { clientId, opponentId, challengerName } = req.body;
     
@@ -233,9 +233,9 @@ app.post('/api/create-chess-game', (req, res) => {
         return res.status(400).json({ error: 'Missing clientId or opponentId' });
     }
 
-    // Use clients map instead of users map for chess players
-    const challenger = clients.get(clientId); // Changed from users to clients
-    const opponent = clients.get(opponentId); // Changed from users to clients
+    // Use clients map for chess players
+    const challenger = clients.get(clientId);
+    const opponent = clients.get(opponentId);
     
     if (!challenger || !opponent) {
         return res.status(404).json({ error: 'User not found or offline' });
@@ -247,11 +247,11 @@ app.post('/api/create-chess-game', (req, res) => {
         id: gameId,
         playerWhite: clientId,
         playerBlack: opponentId,
-        whiteName: challengerName,
+        whiteName: challengerName || challenger.username,
         blackName: opponent.username,
         fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         moves: [],
-        status: 'waiting', // waiting, active, finished
+        status: 'waiting',
         result: null,
         createdAt: Date.now(),
         lastMoveTime: Date.now()
@@ -259,12 +259,12 @@ app.post('/api/create-chess-game', (req, res) => {
 
     chessGames.set(gameId, gameState);
 
-    // Notify the opponent
+    // Notify the opponent using the fixed function
     addEventToUser(opponentId, {
         event: 'chess_invitation',
         data: {
             gameId,
-            challenger: challengerName,
+            challenger: challengerName || challenger.username,
             challengerId: clientId
         }
     });
@@ -1106,6 +1106,13 @@ function broadcastToAll(event, data) {
   });
 }
 
+function addEventToUser(clientId, eventData) {
+  const client = longPollingClients.get(clientId);
+  if (client && client.res && !client.res.finished) {
+    client.res.json({ events: [eventData], timestamp: Date.now() });
+    longPollingClients.delete(clientId);
+  }
+}
 function broadcastToClient(clientId, event, data) {
   const client = longPollingClients.get(clientId);
   if (client && client.res && !client.res.finished) {
