@@ -224,8 +224,82 @@ function cleanupEmptyDMRooms() {
 }
 
 // === HTTP endpoints ===
+// Color selection endpoint
+app.post('/api/chess-color-select', (req, res) => {
+    const { clientId, gameId, color } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    
+    if (game.challengerId !== clientId) {
+        return res.status(403).json({ error: 'Only challenger can select color' });
+    }
+    
+    game.challengerColor = color;
+    game.opponentColor = color === 'white' ? 'black' : 'white';
+    
+    // Notify opponent about color selection
+    const opponentId = game.challengerId === game.playerWhite ? game.playerBlack : game.playerWhite;
+    addEventToUser(opponentId, {
+        event: 'color_selected',
+        data: { gameId, color }
+    });
+    
+    res.json({ success: true, gameState: game });
+});
 
-// Create a new chess game - FIXED VERSION
+// Start game endpoint
+app.post('/api/start-chess-game', (req, res) => {
+    const { clientId, gameId, challengerColor } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    
+    if (game.challengerId !== clientId) {
+        return res.status(403).json({ error: 'Only challenger can start game' });
+    }
+    
+    // Assign colors based on challenger's choice
+    if (challengerColor === 'black') {
+        // Swap player roles
+        [game.playerWhite, game.playerBlack] = [game.playerBlack, game.playerWhite];
+        [game.whiteName, game.blackName] = [game.blackName, game.whiteName];
+    }
+    
+    game.status = 'active';
+    
+    // Notify both players
+    addEventToUser(game.playerWhite, {
+        event: 'chess_game_started',
+        data: { gameId, gameState: game }
+    });
+    
+    addEventToUser(game.playerBlack, {
+        event: 'chess_game_started',
+        data: { gameId, gameState: game }
+    });
+    
+    res.json({ success: true, gameState: game });
+});
+
+// Cancel game endpoint
+app.post('/api/cancel-chess-game', (req, res) => {
+    const { clientId, gameId } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    
+    // Notify opponent about cancellation
+    const opponentId = game.challengerId === game.playerWhite ? game.playerBlack : game.playerWhite;
+    addEventToUser(opponentId, {
+        event: 'chess_game_cancelled',
+        data: { gameId }
+    });
+    
+    chessGames.delete(gameId);
+    res.json({ success: true });
+});
+
 app.post('/api/create-chess-game', (req, res) => {
     const { clientId, opponentId, challengerName } = req.body;
     
@@ -233,7 +307,6 @@ app.post('/api/create-chess-game', (req, res) => {
         return res.status(400).json({ error: 'Missing clientId or opponentId' });
     }
 
-    // Use clients map for chess players
     const challenger = clients.get(clientId);
     const opponent = clients.get(opponentId);
     
@@ -245,10 +318,14 @@ app.post('/api/create-chess-game', (req, res) => {
     
     const gameState = {
         id: gameId,
-        playerWhite: clientId,
+        playerWhite: clientId, // Initially assign challenger as white
         playerBlack: opponentId,
         whiteName: challengerName || challenger.username,
         blackName: opponent.username,
+        challengerId: clientId,
+        challengerName: challengerName || challenger.username,
+        challengerColor: null, // To be set later
+        opponentColor: null,
         fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         moves: [],
         status: 'waiting',
@@ -259,7 +336,7 @@ app.post('/api/create-chess-game', (req, res) => {
 
     chessGames.set(gameId, gameState);
 
-    // Notify the opponent using the fixed function
+    // Notify opponent
     addEventToUser(opponentId, {
         event: 'chess_invitation',
         data: {
@@ -271,16 +348,14 @@ app.post('/api/create-chess-game', (req, res) => {
 
     res.json({ success: true, gameId, gameState });
 });
-// Accept chess invitation
+
+// Update accept invitation to send game ready event
 app.post('/api/accept-chess-invitation', (req, res) => {
     const { clientId, gameId } = req.body;
     
     const game = chessGames.get(gameId);
-    if (!game) {
-        return res.status(404).json({ error: 'Game not found' });
-    }
+    if (!game) return res.status(404).json({ error: 'Game not found' });
 
-    // Verify user exists in clients map
     if (!clients.has(clientId)) {
         return res.status(404).json({ error: 'User not found' });
     }
@@ -289,22 +364,19 @@ app.post('/api/accept-chess-invitation', (req, res) => {
         return res.status(403).json({ error: 'Not your invitation' });
     }
 
-    game.status = 'active';
+    game.status = 'ready'; // Changed from 'active' to 'ready'
     
-    // Notify both players (check if they exist in clients first)
-    if (clients.has(game.playerWhite)) {
-        addEventToUser(game.playerWhite, {
-            event: 'chess_game_started',
-            data: { gameId, gameState: game }
-        });
-    }
+    // Notify challenger that game is ready for setup
+    addEventToUser(game.playerWhite, {
+        event: 'chess_game_ready',
+        data: { gameId, gameState: game }
+    });
     
-    if (clients.has(game.playerBlack)) {
-        addEventToUser(game.playerBlack, {
-            event: 'chess_game_started',
-            data: { gameId, gameState: game }
-        });
-    }
+    // Notify challenged player as well
+    addEventToUser(game.playerBlack, {
+        event: 'chess_game_ready',
+        data: { gameId, gameState: game }
+    });
 
     res.json({ success: true, gameState: game });
 });
