@@ -309,7 +309,6 @@ app.post('/api/accept-chess-invitation', (req, res) => {
     res.json({ success: true, gameState: game });
 });
 
-// Make a move
 app.post('/api/chess-move', (req, res) => {
     const { clientId, gameId, move } = req.body;
     
@@ -322,8 +321,8 @@ app.post('/api/chess-move', (req, res) => {
         return res.status(400).json({ error: 'Game not active' });
     }
 
-    // Verify user exists in clients map
-    if (!clients.has(clientId)) {
+    // FIX: Check if user exists in users map (not clients map)
+    if (!users.has(clientId)) {
         return res.status(404).json({ error: 'User not found' });
     }
 
@@ -335,7 +334,7 @@ app.post('/api/chess-move', (req, res) => {
         return res.status(403).json({ error: 'Not your turn' });
     }
 
-    // Validate move (basic validation - you'd want more robust validation)
+    // Validate move (basic validation)
     if (!move.from || !move.to) {
         return res.status(400).json({ error: 'Invalid move format' });
     }
@@ -347,8 +346,7 @@ app.post('/api/chess-move', (req, res) => {
         timestamp: Date.now()
     });
 
-    // Update FEN (you'd want proper FEN generation here)
-    // For now, just toggle turn
+    // Update FEN (simplified - you'd want proper FEN generation)
     game.fen = game.fen.replace(/ w /, ' b ').replace(/ b /, ' w ');
     game.lastMoveTime = Date.now();
 
