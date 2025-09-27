@@ -4,7 +4,7 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 334;
 
 // CORS at the very top - BEFORE any other middleware
 app.use(cors({
@@ -324,9 +324,9 @@ app.post('/api/create-chess-game', (req, res) => {
         blackName: opponent.username,
         challengerId: clientId,
         challengerName: challengerName || challenger.username,
-        challengerColor: null, // To be set later
+        challengerColor: null,
         opponentColor: null,
-        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', // Ensure 'w' for white's turn
         moves: [],
         status: 'waiting',
         result: null,
@@ -398,10 +398,24 @@ app.post('/api/chess-move', (req, res) => {
         return res.status(404).json({ error: 'User not found' });
     }
 
-    // Validate it's the player's turn
-    const currentTurn = game.fen.includes(' w ') ? 'white' : 'black';
-    const currentPlayer = currentTurn === 'white' ? game.playerWhite : game.playerBlack;
+    // FIXED: Proper turn validation
+    const currentTurn = game.fen.split(' ')[1]; // Get the turn from FEN: 'w' or 'b'
+    const isWhiteTurn = currentTurn === 'w';
     
+    // Determine which player should be moving based on turn
+    const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+    
+    console.log('Turn validation:', {
+        fen: game.fen,
+        currentTurn: currentTurn,
+        isWhiteTurn: isWhiteTurn,
+        currentPlayer: currentPlayer,
+        requestingClient: clientId,
+        playerWhite: game.playerWhite,
+        playerBlack: game.playerBlack,
+        isValid: currentPlayer === clientId
+    });
+
     if (currentPlayer !== clientId) {
         return res.status(403).json({ error: 'Not your turn' });
     }
@@ -418,8 +432,11 @@ app.post('/api/chess-move', (req, res) => {
         timestamp: Date.now()
     });
 
-    // Update FEN (simplified - you'd want proper FEN generation)
-    game.fen = game.fen.replace(/ w /, ' b ').replace(/ b /, ' w ');
+    // Update FEN - switch turn
+    const fenParts = game.fen.split(' ');
+    fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w'; // Switch turn
+    game.fen = fenParts.join(' ');
+    
     game.lastMoveTime = Date.now();
 
     // Determine opponent
