@@ -393,101 +393,33 @@ app.post('/api/chess-move', (req, res) => {
         return res.status(400).json({ error: 'Game not active' });
     }
 
-    // Validate move format
-    if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
-        return res.status(400).json({ error: 'Invalid move format' });
+    // FIX: Check if user exists in users map (not clients map)
+    if (!users.has(clientId)) {
+        return res.status(404).json({ error: 'User not found' });
     }
 
-    const [fromRow, fromCol] = move.from;
-    const [toRow, toCol] = move.to;
-
-    // Validate coordinates are within board bounds
-    if (fromRow < 0 || fromRow > 7 || fromCol < 0 || fromCol > 7 ||
-        toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) {
-        return res.status(400).json({ error: 'Invalid move coordinates' });
-    }
-
-    // Parse current FEN to get board state
-    const fenParts = game.fen.split(' ');
-    const boardState = fenParts[0];
-    const currentTurn = fenParts[1];
-    
     // Validate it's the player's turn
-    const currentPlayer = currentTurn === 'w' ? game.playerWhite : game.playerBlack;
+    const currentTurn = game.fen.includes(' w ') ? 'white' : 'black';
+    const currentPlayer = currentTurn === 'white' ? game.playerWhite : game.playerBlack;
     
     if (currentPlayer !== clientId) {
         return res.status(403).json({ error: 'Not your turn' });
     }
 
-    // Convert FEN to board array for validation
-    const board = fenToBoardArray(boardState);
-    
-    // Validate there's a piece at the from square
-    const piece = board[fromRow][fromCol];
-    if (!piece) {
-        return res.status(400).json({ error: 'No piece at selected square' });
+    // Validate move (basic validation)
+    if (!move.from || !move.to) {
+        return res.status(400).json({ error: 'Invalid move format' });
     }
 
-    // Validate player is moving their own piece
-    const pieceColor = piece === piece.toUpperCase() ? 'w' : 'b';
-    if (pieceColor !== currentTurn) {
-        return res.status(403).json({ error: 'Cannot move opponent pieces' });
-    }
-
-    // TODO: Add basic move validation here
-    // For now, we'll accept any move but you should implement proper validation
-    
     // Add move to game history
     game.moves.push({
         move,
         player: clientId,
-        timestamp: Date.now(),
-        promotion: move.promotion || null
+        timestamp: Date.now()
     });
 
-    // Update FEN properly (this is simplified - consider using a chess library)
-    const newTurn = currentTurn === 'w' ? 'b' : 'w';
-    
-    // Update castling rights if king or rook moves
-    if (piece.toLowerCase() === 'k') {
-        if (currentTurn === 'w') {
-            game.castling = game.castling.replace(/[KQ]/g, '');
-        } else {
-            game.castling = game.castling.replace(/[kq]/g, '');
-        }
-    } else if (piece.toLowerCase() === 'r') {
-        if (currentTurn === 'w') {
-            if (fromRow === 7 && fromCol === 0) game.castling = game.castling.replace('Q', '');
-            if (fromRow === 7 && fromCol === 7) game.castling = game.castling.replace('K', '');
-        } else {
-            if (fromRow === 0 && fromCol === 0) game.castling = game.castling.replace('q', '');
-            if (fromRow === 0 && fromCol === 7) game.castling = game.castling.replace('k', '');
-        }
-    }
-
-    // Update en passant target
-    let newEnPassant = '-';
-    if (piece.toLowerCase() === 'p' && Math.abs(fromRow - toRow) === 2) {
-        const epRow = currentTurn === 'w' ? (fromRow + toRow) / 2 : (fromRow + toRow) / 2;
-        newEnPassant = filesStr[fromCol] + (8 - epRow);
-    }
-
-    // Update halfmove clock
-    let newHalfmove = parseInt(fenParts[4]) + 1;
-    if (piece.toLowerCase() === 'p' || board[toRow][toCol]) {
-        newHalfmove = 0; // reset on pawn move or capture
-    }
-
-    // Update fullmove number
-    let newFullmove = parseInt(fenParts[5]);
-    if (currentTurn === 'b') {
-        newFullmove++;
-    }
-
-    // Generate new FEN (simplified - consider using a proper FEN generator)
-    const newBoardFEN = generateFENFromMove(board, move, currentTurn);
-    game.fen = `${newBoardFEN} ${newTurn} ${game.castling || '-'} ${newEnPassant} ${newHalfmove} ${newFullmove}`;
-    
+    // Update FEN (simplified - you'd want proper FEN generation)
+    game.fen = game.fen.replace(/ w /, ' b ').replace(/ b /, ' w ');
     game.lastMoveTime = Date.now();
 
     // Determine opponent
@@ -506,84 +438,6 @@ app.post('/api/chess-move', (req, res) => {
 
     res.json({ success: true, gameState: game });
 });
-
-// Helper functions for FEN handling
-function fenToBoardArray(fen) {
-    const board = Array(8).fill().map(() => Array(8).fill(null));
-    const rows = fen.split('/');
-    
-    for (let r = 0; r < 8; r++) {
-        let c = 0;
-        for (let char of rows[r]) {
-            if (/[1-8]/.test(char)) {
-                c += parseInt(char);
-            } else {
-                board[r][c] = char;
-                c++;
-            }
-        }
-    }
-    return board;
-}
-
-function generateFENFromMove(board, move, currentTurn) {
-    // Create a copy of the board
-    const newBoard = board.map(row => [...row]);
-    
-    const [fromRow, fromCol] = move.from;
-    const [toRow, toCol] = move.to;
-    const piece = newBoard[fromRow][fromCol];
-    
-    // Handle en passant capture
-    if (move.flags && move.flags.enpassant) {
-        const capRow = currentTurn === 'w' ? toRow + 1 : toRow - 1;
-        newBoard[capRow][toCol] = null;
-    }
-    
-    // Handle castling
-    if (move.flags && move.flags.castle) {
-        if (move.flags.castle === 'K') {
-            newBoard[toRow][5] = newBoard[toRow][7]; // rook
-            newBoard[toRow][7] = null;
-        } else if (move.flags.castle === 'Q') {
-            newBoard[toRow][3] = newBoard[toRow][0]; // rook
-            newBoard[toRow][0] = null;
-        }
-    }
-    
-    // Move the piece
-    newBoard[toRow][toCol] = move.promotion 
-        ? (currentTurn === 'w' ? move.promotion.toUpperCase() : move.promotion.toLowerCase())
-        : piece;
-    newBoard[fromRow][fromCol] = null;
-    
-    // Convert board back to FEN
-    const rows = [];
-    for (let r = 0; r < 8; r++) {
-        let fenRow = '';
-        let emptyCount = 0;
-        
-        for (let c = 0; c < 8; c++) {
-            if (newBoard[r][c] === null) {
-                emptyCount++;
-            } else {
-                if (emptyCount > 0) {
-                    fenRow += emptyCount;
-                    emptyCount = 0;
-                }
-                fenRow += newBoard[r][c];
-            }
-        }
-        
-        if (emptyCount > 0) {
-            fenRow += emptyCount;
-        }
-        
-        rows.push(fenRow);
-    }
-    
-    return rows.join('/');
-}
 
 // Get game state
 app.get('/api/chess-game/:gameId', (req, res) => {
