@@ -384,6 +384,17 @@ app.post('/api/accept-chess-invitation', (req, res) => {
 app.post('/api/chess-move', (req, res) => {
     const { clientId, gameId, move } = req.body;
     
+    // CRITICAL FIX: Clean up any pending long-polling connection for this client
+    const pendingClient = longPollingClients.get(clientId);
+    if (pendingClient && pendingClient.res && !pendingClient.res.finished) {
+      try {
+        // Send empty response to clear the pending poll
+        pendingClient.res.json({ events: [], timestamp: Date.now() });
+      } catch (e) {
+        // Ignore errors - connection might already be closed
+      }
+      longPollingClients.delete(clientId);
+    }
     const game = chessGames.get(gameId);
     if (!game) {
         return res.status(404).json({ error: 'Game not found' });
