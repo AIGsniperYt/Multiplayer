@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 334;
 
-// CORS at the very top - BEFORE any other middleware
+// CORS at the very top - BEFORE any other middleware 
 app.use(cors({
   origin: function (origin, callback) {
     // 1. Allow requests with no origin (like from mobile apps, Postman, or same-origin requests)
@@ -1302,5 +1302,6 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
+
 
 
