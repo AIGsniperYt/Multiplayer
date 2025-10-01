@@ -388,6 +388,9 @@ app.post('/api/accept-chess-invitation', (req, res) => {
 app.post('/api/chess-move', (req, res) => {
     const { clientId, gameId, move } = req.body;
     
+    if (!clientId || !gameId || !move) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
     const game = chessGames.get(gameId);
     if (!game) {
         return res.status(404).json({ error: 'Game not found' });
@@ -423,8 +426,8 @@ app.post('/api/chess-move', (req, res) => {
         isValid: currentPlayer === clientId
     });
 
-    // Validate move (basic validation)
-    if (!move.from || !move.to) {
+    // Validate move structure
+    if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
         return res.status(400).json({ error: 'Invalid move format' });
     }
 
