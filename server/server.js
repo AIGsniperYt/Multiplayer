@@ -1,3 +1,7 @@
+/*
+  AIGsniper copyright © 2025 - all rights reserved
+*/
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -6,7 +10,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 334;
 
-// CORS at the very top - BEFORE any other middleware 
+// CORS at the very top - BEFORE any other middleware
 app.use(cors({
   origin: function (origin, callback) {
     // 1. Allow requests with no origin (like from mobile apps, Postman, or same-origin requests)
@@ -384,17 +388,6 @@ app.post('/api/accept-chess-invitation', (req, res) => {
 app.post('/api/chess-move', (req, res) => {
     const { clientId, gameId, move } = req.body;
     
-    // CRITICAL FIX: Clean up any pending long-polling connection for this client
-    const pendingClient = longPollingClients.get(clientId);
-    if (pendingClient && pendingClient.res && !pendingClient.res.finished) {
-      try {
-        // Send empty response to clear the pending poll
-        pendingClient.res.json({ events: [], timestamp: Date.now() });
-      } catch (e) {
-        // Ignore errors - connection might already be closed
-      }
-      longPollingClients.delete(clientId);
-    }
     const game = chessGames.get(gameId);
     if (!game) {
         return res.status(404).json({ error: 'Game not found' });
@@ -409,12 +402,15 @@ app.post('/api/chess-move', (req, res) => {
         return res.status(404).json({ error: 'User not found' });
     }
 
-    // FIXED: Proper turn validation
     const currentTurn = game.fen.split(' ')[1]; // Get the turn from FEN: 'w' or 'b'
     const isWhiteTurn = currentTurn === 'w';
-    
+
     // Determine which player should be moving based on turn
     const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+
+    if (currentPlayer !== clientId) {
+        return res.status(403).json({ error: 'Not your turn' });
+    }
     
     console.log('Turn validation:', {
         fen: game.fen,
@@ -426,10 +422,6 @@ app.post('/api/chess-move', (req, res) => {
         playerBlack: game.playerBlack,
         isValid: currentPlayer === clientId
     });
-
-    if (currentPlayer !== clientId) {
-        return res.status(403).json({ error: 'Not your turn' });
-    }
 
     // Validate move (basic validation)
     if (!move.from || !move.to) {
@@ -467,6 +459,21 @@ app.post('/api/chess-move', (req, res) => {
     res.json({ success: true, gameState: game });
 });
 
+app.get('/api/refresh-chess-game/:gameId/:clientId', (req, res) => {
+    const { gameId, clientId } = req.params;
+    const game = chessGames.get(gameId);
+    
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    // Verify user is in this game
+    if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not in this game' });
+    }
+    
+    res.json({ success: true, gameState: game });
+});
 // Get game state
 app.get('/api/chess-game/:gameId', (req, res) => {
     const game = chessGames.get(req.params.gameId);
@@ -1302,6 +1309,5 @@ setInterval(() => {
 }, 30000);
 
 http.createServer(app).listen(PORT, () => console.log(`Server running on ${PORT} (long polling only)`));
-
 
 
