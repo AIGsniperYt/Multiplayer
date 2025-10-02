@@ -386,80 +386,104 @@ app.post('/api/accept-chess-invitation', (req, res) => {
 });
 
 app.post('/api/chess-move', (req, res) => {
-    const { clientId, gameId, move } = req.body;
-    
-    if (!clientId || !gameId || !move) {
-        return res.status(400).json({ error: 'Missing required fields' });
+  const { clientId, gameId, move } = req.body;
+  
+  if (!clientId || !gameId || !move) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const game = chessGames.get(gameId);
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  if (game.status !== 'active') {
+    return res.status(400).json({ error: 'Game not active' });
+  }
+
+  // FIX: Check if user exists in users map (not clients map)
+  if (!users.has(clientId)) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const currentTurn = game.fen.split(' ')[1]; // Get the turn from FEN: 'w' or 'b'
+  const isWhiteTurn = currentTurn === 'w';
+
+  // Determine which player should be moving based on turn
+  const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+
+  if (currentPlayer !== clientId) {
+    return res.status(403).json({ error: 'Not your turn' });
+  }
+  
+  console.log('Turn validation:', {
+    fen: game.fen,
+    currentTurn: currentTurn,
+    isWhiteTurn: isWhiteTurn,
+    currentPlayer: currentPlayer,
+    requestingClient: clientId,
+    playerWhite: game.playerWhite,
+    playerBlack: game.playerBlack,
+    isValid: currentPlayer === clientId,
+    hasPromotion: !!move.promotion // Log if promotion is present
+  });
+
+  // Validate move structure
+  if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
+    return res.status(400).json({ error: 'Invalid move format' });
+  }
+
+  // Add move to game history - include promotion if present
+  game.moves.push({
+    move: {
+      from: move.from,
+      to: move.to,
+      piece: move.piece,
+      capture: move.capture,
+      promotion: move.promotion || null, // Ensure promotion is included
+      flags: move.flags || {}
+    },
+    player: clientId,
+    timestamp: Date.now()
+  });
+
+  // Update FEN - switch turn AND handle promotion in FEN
+  const fenParts = game.fen.split(' ');
+  fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w'; // Switch turn
+  
+  // If it's a promotion move, we need to update the board representation in FEN
+  // This is a simplified approach - you might need more sophisticated FEN updating
+  if (move.promotion) {
+    console.log('Promotion move detected:', move.promotion);
+    // Note: In a full implementation, you'd update the FEN board string here
+    // to reflect the promoted piece
+  }
+  
+  game.fen = fenParts.join(' ');
+  
+  game.lastMoveTime = Date.now();
+
+  // Determine opponent
+  const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
+
+  // Notify opponent - make sure to include the promotion in the move data
+  addEventToUser(opponentId, {
+    event: 'chess_move_made',
+    data: {
+      gameId,
+      move: {
+        from: move.from,
+        to: move.to,
+        piece: move.piece,
+        capture: move.capture,
+        promotion: move.promotion || null, // Include promotion
+        flags: move.flags || {}
+      },
+      newFen: game.fen,
+      gameState: game
     }
-    const game = chessGames.get(gameId);
-    if (!game) {
-        return res.status(404).json({ error: 'Game not found' });
-    }
+  });
 
-    if (game.status !== 'active') {
-        return res.status(400).json({ error: 'Game not active' });
-    }
-
-    // FIX: Check if user exists in users map (not clients map)
-    if (!users.has(clientId)) {
-        return res.status(404).json({ error: 'User not found' });
-    }
-
-    const currentTurn = game.fen.split(' ')[1]; // Get the turn from FEN: 'w' or 'b'
-    const isWhiteTurn = currentTurn === 'w';
-
-    // Determine which player should be moving based on turn
-    const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
-
-    if (currentPlayer !== clientId) {
-        return res.status(403).json({ error: 'Not your turn' });
-    }
-    
-    console.log('Turn validation:', {
-        fen: game.fen,
-        currentTurn: currentTurn,
-        isWhiteTurn: isWhiteTurn,
-        currentPlayer: currentPlayer,
-        requestingClient: clientId,
-        playerWhite: game.playerWhite,
-        playerBlack: game.playerBlack,
-        isValid: currentPlayer === clientId
-    });
-
-    // Validate move structure
-    if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
-        return res.status(400).json({ error: 'Invalid move format' });
-    }
-
-    // Add move to game history
-    game.moves.push({
-        move,
-        player: clientId,
-        timestamp: Date.now()
-    });
-
-    // Update FEN - switch turn
-    const fenParts = game.fen.split(' ');
-    fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w'; // Switch turn
-    game.fen = fenParts.join(' ');
-    
-    game.lastMoveTime = Date.now();
-
-    // Determine opponent
-    const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
-
-    // Notify opponent
-    addEventToUser(opponentId, {
-        event: 'chess_move_made',
-        data: {
-            gameId,
-            move: move,
-            newFen: game.fen,
-            gameState: game
-        }
-    });
-
-    res.json({ success: true, gameState: game });
+  res.json({ success: true, gameState: game });
 });
 
 app.get('/api/refresh-chess-game/:gameId/:clientId', (req, res) => {
