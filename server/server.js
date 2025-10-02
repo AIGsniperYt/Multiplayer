@@ -485,7 +485,44 @@ app.post('/api/chess-move', (req, res) => {
 
   res.json({ success: true, gameState: game });
 });
+// Add move validation endpoint
+app.post('/api/validate-move', (req, res) => {
+    const { clientId, gameId, move } = req.body;
+    
+    const game = chessGames.get(gameId);
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    
+    // Basic move validation
+    if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
+        return res.status(400).json({ error: 'Invalid move format' });
+    }
+    
+    // Turn validation
+    const currentTurn = game.fen.split(' ')[1];
+    const isWhiteTurn = currentTurn === 'w';
+    const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+    
+    if (currentPlayer !== clientId) {
+        return res.json({ valid: false, error: 'Not your turn' });
+    }
+    
+    res.json({ valid: true });
+});
 
+// Add game state checksum for synchronization
+app.get('/api/game-state-checksum/:gameId', (req, res) => {
+    const game = chessGames.get(req.params.gameId);
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+    
+    // Simple checksum based on FEN and move count
+    const checksum = {
+        fen: game.fen,
+        moveCount: game.moves.length,
+        lastMoveTime: game.lastMoveTime
+    };
+    
+    res.json({ checksum });
+});
 app.get('/api/refresh-chess-game/:gameId/:clientId', (req, res) => {
     const { gameId, clientId } = req.params;
     const game = chessGames.get(gameId);
