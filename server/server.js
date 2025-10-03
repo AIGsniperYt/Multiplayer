@@ -560,7 +560,161 @@ app.get('/api/user-chess-games/:clientId', (req, res) => {
     
     res.json({ success: true, games: userGames });
 });
+// Add to server.js - Enhanced game state endpoints
 
+// Get complete game state with validation
+app.get('/api/chess-game-state/:gameId/:clientId', (req, res) => {
+    const { gameId, clientId } = req.params;
+    const game = chessGames.get(gameId);
+    
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    // Verify user is in this game
+    if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not in this game' });
+    }
+    
+    // Enhanced game state with synchronization data
+    const enhancedState = {
+        ...game,
+        syncData: {
+            lastMoveIndex: game.moves.length,
+            boardHash: generateBoardHash(game.fen),
+            lastUpdate: game.lastMoveTime,
+            currentTurn: game.fen.split(' ')[1]
+        }
+    };
+    
+    res.json({ success: true, gameState: enhancedState });
+});
+
+// Validate and apply move with full state synchronization
+app.post('/api/sync-chess-move', (req, res) => {
+    const { clientId, gameId, move, clientState } = req.body;
+    
+    if (!clientId || !gameId || !move) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const game = chessGames.get(gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    // Enhanced validation
+    if (!users.has(clientId)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Validate client state if provided
+    if (clientState) {
+        const serverHash = generateBoardHash(game.fen);
+        if (clientState.boardHash !== serverHash) {
+            return res.status(409).json({ 
+                error: 'State mismatch', 
+                serverState: game,
+                requiresResync: true 
+            });
+        }
+    }
+    
+    // Turn validation
+    const currentTurn = game.fen.split(' ')[1];
+    const isWhiteTurn = currentTurn === 'w';
+    const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+    
+    if (currentPlayer !== clientId) {
+        return res.status(403).json({ error: 'Not your turn' });
+    }
+    
+    // Enhanced move validation
+    if (!isValidMoveStructure(move)) {
+        return res.status(400).json({ error: 'Invalid move format' });
+    }
+    
+    // Add move to game history
+    game.moves.push({
+        move: {
+            from: move.from,
+            to: move.to,
+            piece: move.piece,
+            capture: move.capture,
+            promotion: move.promotion || null,
+            flags: move.flags || {}
+        },
+        player: clientId,
+        timestamp: Date.now(),
+        moveIndex: game.moves.length
+    });
+    
+    // Update FEN - switch turn
+    const fenParts = game.fen.split(' ');
+    fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+    game.fen = fenParts.join(' ');
+    game.lastMoveTime = Date.now();
+    
+    // Determine opponent
+    const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
+    
+    // Enhanced response with full synchronization data
+    const responseData = {
+        success: true,
+        gameState: game,
+        syncData: {
+            moveApplied: true,
+            newBoardHash: generateBoardHash(game.fen),
+            moveIndex: game.moves.length
+        }
+    };
+    
+    // Notify opponent with full game state
+    addEventToUser(opponentId, {
+        event: 'chess_move_made',
+        data: {
+            gameId,
+            move: move,
+            gameState: game, // Send full game state
+            syncRequired: false // Client should use this state directly
+        }
+    });
+    
+    res.json(responseData);
+});
+
+// Force synchronization endpoint
+app.post('/api/force-sync/:gameId/:clientId', (req, res) => {
+    const { gameId, clientId } = req.params;
+    const game = chessGames.get(gameId);
+    
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not in this game' });
+    }
+    
+    res.json({ 
+        success: true, 
+        gameState: game,
+        forceResync: true 
+    });
+});
+
+// Helper functions
+function generateBoardHash(fen) {
+    // Simple hash based on FEN position
+    return Buffer.from(fen).toString('base64').substring(0, 16);
+}
+
+function isValidMoveStructure(move) {
+    return move && 
+           Array.isArray(move.from) && move.from.length === 2 &&
+           Array.isArray(move.to) && move.to.length === 2 &&
+           typeof move.piece === 'string';
+}
 
 app.post('/api/join', (req, res) => {
   if (!isServerActive) {
