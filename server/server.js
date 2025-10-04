@@ -680,9 +680,21 @@ app.post('/api/sync-chess-move', (req, res) => {
         moveIndex: game.moves.length
     });
     
-    // Update FEN - switch turn
+    // Update FEN - ensure all 6 fields are maintained
     const fenParts = game.fen.split(' ');
-    fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+    if (fenParts.length < 6) {
+        // If FEN is incomplete, reconstruct it properly
+        fenParts[0] = fenParts[0] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+        fenParts[1] = (fenParts[1] === 'w' ? 'b' : 'w');
+        fenParts[2] = fenParts[2] || 'KQkq';
+        fenParts[3] = fenParts[3] || '-';
+        fenParts[4] = fenParts[4] || '0';
+        fenParts[5] = fenParts[5] || '1';
+    } else {
+        // Normal case - just switch turn
+        fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+    }
+    
     game.fen = fenParts.join(' ');
     game.lastMoveTime = Date.now();
     
