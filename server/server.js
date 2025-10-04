@@ -320,9 +320,12 @@ app.post('/api/create-chess-game', (req, res) => {
 
     const gameId = `chess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
+    // Ensure complete FEN format with all 6 fields
+    const completeFEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    
     const gameState = {
         id: gameId,
-        playerWhite: clientId, // Initially assign challenger as white
+        playerWhite: clientId,
         playerBlack: opponentId,
         whiteName: challengerName || challenger.username,
         blackName: opponent.username,
@@ -330,7 +333,7 @@ app.post('/api/create-chess-game', (req, res) => {
         challengerName: challengerName || challenger.username,
         challengerColor: null,
         opponentColor: null,
-        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', // Ensure 'w' for white's turn
+        fen: completeFEN, // Use the complete FEN
         moves: [],
         status: 'waiting',
         result: null,
@@ -351,6 +354,95 @@ app.post('/api/create-chess-game', (req, res) => {
     });
 
     res.json({ success: true, gameId, gameState });
+});
+
+// Update the chess-move endpoint to maintain proper FEN format
+app.post('/api/chess-move', (req, res) => {
+  const { clientId, gameId, move } = req.body;
+  
+  if (!clientId || !gameId || !move) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const game = chessGames.get(gameId);
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  if (game.status !== 'active') {
+    return res.status(400).json({ error: 'Game not active' });
+  }
+
+  if (!users.has(clientId)) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const currentTurn = game.fen.split(' ')[1];
+  const isWhiteTurn = currentTurn === 'w';
+  const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
+
+  if (currentPlayer !== clientId) {
+    return res.status(403).json({ error: 'Not your turn' });
+  }
+  
+  // Validate move structure
+  if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
+    return res.status(400).json({ error: 'Invalid move format' });
+  }
+
+  // Add move to game history
+  game.moves.push({
+    move: {
+      from: move.from,
+      to: move.to,
+      piece: move.piece,
+      capture: move.capture,
+      promotion: move.promotion || null,
+      flags: move.flags || {}
+    },
+    player: clientId,
+    timestamp: Date.now()
+  });
+
+  // Update FEN - ensure all 6 fields are maintained
+  const fenParts = game.fen.split(' ');
+  if (fenParts.length < 6) {
+    // If FEN is incomplete, reconstruct it properly
+    fenParts[0] = fenParts[0] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+    fenParts[1] = (fenParts[1] === 'w' ? 'b' : 'w');
+    fenParts[2] = fenParts[2] || 'KQkq';
+    fenParts[3] = fenParts[3] || '-';
+    fenParts[4] = fenParts[4] || '0';
+    fenParts[5] = fenParts[5] || '1';
+  } else {
+    // Normal case - just switch turn
+    fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w';
+  }
+  
+  game.fen = fenParts.join(' ');
+  game.lastMoveTime = Date.now();
+
+  // Determine opponent
+  const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
+
+  // Notify opponent
+  addEventToUser(opponentId, {
+    event: 'chess_move_made',
+    data: {
+      gameId,
+      move: {
+        from: move.from,
+        to: move.to,
+        piece: move.piece,
+        capture: move.capture,
+        promotion: move.promotion || null,
+        flags: move.flags || {}
+      },
+      newFen: game.fen,
+      gameState: game
+    }
+  });
+
+  res.json({ success: true, gameState: game });
 });
 
 // Update accept invitation to send game ready event
@@ -385,106 +477,6 @@ app.post('/api/accept-chess-invitation', (req, res) => {
     res.json({ success: true, gameState: game });
 });
 
-app.post('/api/chess-move', (req, res) => {
-  const { clientId, gameId, move } = req.body;
-  
-  if (!clientId || !gameId || !move) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-  const game = chessGames.get(gameId);
-  if (!game) {
-    return res.status(404).json({ error: 'Game not found' });
-  }
-
-  if (game.status !== 'active') {
-    return res.status(400).json({ error: 'Game not active' });
-  }
-
-  // FIX: Check if user exists in users map (not clients map)
-  if (!users.has(clientId)) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  const currentTurn = game.fen.split(' ')[1]; // Get the turn from FEN: 'w' or 'b'
-  const isWhiteTurn = currentTurn === 'w';
-
-  // Determine which player should be moving based on turn
-  const currentPlayer = isWhiteTurn ? game.playerWhite : game.playerBlack;
-
-  if (currentPlayer !== clientId) {
-    return res.status(403).json({ error: 'Not your turn' });
-  }
-  
-  console.log('Turn validation:', {
-    fen: game.fen,
-    currentTurn: currentTurn,
-    isWhiteTurn: isWhiteTurn,
-    currentPlayer: currentPlayer,
-    requestingClient: clientId,
-    playerWhite: game.playerWhite,
-    playerBlack: game.playerBlack,
-    isValid: currentPlayer === clientId,
-    hasPromotion: !!move.promotion // Log if promotion is present
-  });
-
-  // Validate move structure
-  if (!move.from || !move.to || !Array.isArray(move.from) || !Array.isArray(move.to)) {
-    return res.status(400).json({ error: 'Invalid move format' });
-  }
-
-  // Add move to game history - include promotion if present
-  game.moves.push({
-    move: {
-      from: move.from,
-      to: move.to,
-      piece: move.piece,
-      capture: move.capture,
-      promotion: move.promotion || null, // Ensure promotion is included
-      flags: move.flags || {}
-    },
-    player: clientId,
-    timestamp: Date.now()
-  });
-
-  // Update FEN - switch turn AND handle promotion in FEN
-  const fenParts = game.fen.split(' ');
-  fenParts[1] = fenParts[1] === 'w' ? 'b' : 'w'; // Switch turn
-  
-  // If it's a promotion move, we need to update the board representation in FEN
-  // This is a simplified approach - you might need more sophisticated FEN updating
-  if (move.promotion) {
-    console.log('Promotion move detected:', move.promotion);
-    // Note: In a full implementation, you'd update the FEN board string here
-    // to reflect the promoted piece
-  }
-  
-  game.fen = fenParts.join(' ');
-  
-  game.lastMoveTime = Date.now();
-
-  // Determine opponent
-  const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
-
-  // Notify opponent - make sure to include the promotion in the move data
-  addEventToUser(opponentId, {
-    event: 'chess_move_made',
-    data: {
-      gameId,
-      move: {
-        from: move.from,
-        to: move.to,
-        piece: move.piece,
-        capture: move.capture,
-        promotion: move.promotion || null, // Include promotion
-        flags: move.flags || {}
-      },
-      newFen: game.fen,
-      gameState: game
-    }
-  });
-
-  res.json({ success: true, gameState: game });
-});
 // Add move validation endpoint
 app.post('/api/validate-move', (req, res) => {
     const { clientId, gameId, move } = req.body;
