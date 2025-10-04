@@ -81,6 +81,7 @@ const messages = [];
 const rooms = new Map(); // New: Room storage
 const chessGames = new Map(); // gameId -> gameState
 const clients = new Map(); // For tracking connected clients
+const pendingEvents = new Map();
 
 rooms.set('global', {
   id: 'global',
@@ -252,7 +253,7 @@ app.post('/api/chess-color-select', (req, res) => {
     res.json({ success: true, gameState: game });
 });
 
-// Start game endpoint
+// Enhanced start game endpoint with better state propagation
 app.post('/api/start-chess-game', (req, res) => {
     const { clientId, gameId, challengerColor } = req.body;
     
@@ -271,19 +272,80 @@ app.post('/api/start-chess-game', (req, res) => {
     }
     
     game.status = 'active';
+    game.challengerColor = challengerColor;
+    game.opponentColor = challengerColor === 'white' ? 'black' : 'white';
     
-    // Notify both players
-    addEventToUser(game.playerWhite, {
-        event: 'chess_game_started',
-        data: { gameId, gameState: game }
+    // Ensure complete FEN with all 6 fields
+    const completeFEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    game.fen = completeFEN;
+    
+    console.log(`Game ${gameId} started by ${game.whiteName} (White) vs ${game.blackName} (Black)`);
+    
+    // Enhanced notification with retry mechanism
+    const notifyPlayers = () => {
+        const eventsSent = [];
+        
+        // Notify white player
+        const whiteEventSent = addEventToUser(game.playerWhite, {
+            event: 'chess_game_started',
+            data: { 
+                gameId, 
+                gameState: game,
+                yourColor: 'white',
+                opponentName: game.blackName
+            }
+        });
+        eventsSent.push({ player: 'white', success: whiteEventSent });
+        
+        // Notify black player  
+        const blackEventSent = addEventToUser(game.playerBlack, {
+            event: 'chess_game_started',
+            data: { 
+                gameId, 
+                gameState: game,
+                yourColor: 'black', 
+                opponentName: game.whiteName
+            }
+        });
+        eventsSent.push({ player: 'black', success: blackEventSent });
+        
+        return eventsSent;
+    };
+    
+    // Attempt to notify players
+    const notificationResults = notifyPlayers();
+    
+    // If any notification failed, log it and try alternative approach
+    const failedNotifications = notificationResults.filter(result => !result.success);
+    if (failedNotifications.length > 0) {
+        console.warn(`Failed to notify some players:`, failedNotifications);
+        
+        // Alternative: store pending notifications and retry on next poll
+        failedNotifications.forEach(failed => {
+            const playerId = failed.player === 'white' ? game.playerWhite : game.playerBlack;
+            const pendingEvent = {
+                event: 'chess_game_started',
+                data: { 
+                    gameId, 
+                    gameState: game,
+                    yourColor: failed.player,
+                    opponentName: failed.player === 'white' ? game.blackName : game.whiteName
+                },
+                timestamp: Date.now(),
+                retryCount: 0
+            };
+            
+            // Store for retry (you might want to add a pendingEvents map)
+            if (!game.pendingEvents) game.pendingEvents = [];
+            game.pendingEvents.push(pendingEvent);
+        });
+    }
+    
+    res.json({ 
+        success: true, 
+        gameState: game,
+        notifications: notificationResults
     });
-    
-    addEventToUser(game.playerBlack, {
-        event: 'chess_game_started',
-        data: { gameId, gameState: game }
-    });
-    
-    res.json({ success: true, gameState: game });
 });
 
 // Cancel game endpoint
@@ -1546,6 +1608,46 @@ function broadcastUsersList(roomId) {
   broadcastToRoom(roomId, 'users_list', list);
 }
 
+// Process pending events periodically
+setInterval(() => {
+    const now = Date.now();
+    const EVENT_TIMEOUT = 30000; // 30 seconds
+    
+    pendingEvents.forEach((events, clientId) => {
+        const remainingEvents = [];
+        
+        events.forEach(event => {
+            // Skip if event is too old
+            if (now - event.timestamp > EVENT_TIMEOUT) {
+                console.log(`Event timeout for ${clientId}: ${event.event}`);
+                return;
+            }
+            
+            // Try to deliver
+            if (event.retryCount < event.maxRetries) {
+                event.retryCount++;
+                const delivered = addEventToUser(clientId, {
+                    event: event.event,
+                    data: event.data
+                });
+                
+                if (!delivered) {
+                    remainingEvents.push(event);
+                } else {
+                    console.log(`Pending event delivered to ${clientId}: ${event.event} (attempt ${event.retryCount})`);
+                }
+            } else {
+                console.log(`Max retries exceeded for ${clientId}: ${event.event}`);
+            }
+        });
+        
+        if (remainingEvents.length > 0) {
+            pendingEvents.set(clientId, remainingEvents);
+        } else {
+            pendingEvents.delete(clientId);
+        }
+    });
+}, 5000); // Check every 5 seconds
 // === Cleanup ===
 setInterval(() => {
   const now = Date.now();
