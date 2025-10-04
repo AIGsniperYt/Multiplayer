@@ -589,9 +589,47 @@ app.get('/api/chess-game-state/:gameId/:clientId', (req, res) => {
     
     res.json({ success: true, gameState: enhancedState });
 });
+// Update chess position with FEN
+app.post('/api/update-chess-position', (req, res) => {
+    const { clientId, gameId, fen } = req.body;
+    
+    if (!clientId || !gameId || !fen) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const game = chessGames.get(gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    // Verify user is in this game
+    if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not in this game' });
+    }
+    
+    // Update game FEN
+    game.fen = fen;
+    game.lastMoveTime = Date.now();
+    
+    console.log(`Updated FEN for game ${gameId}: ${fen}`);
+    
+    res.json({ success: true });
+});
 
+// Get current chess position
+app.get('/api/get-chess-position/:gameId', (req, res) => {
+    const game = chessGames.get(req.params.gameId);
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    res.json({ 
+        success: true, 
+        fen: game.fen,
+        lastUpdate: game.lastMoveTime 
+    });
+});
 // Validate and apply move with full state synchronization
-// Enhanced validate and apply move with full state synchronization
 app.post('/api/sync-chess-move', (req, res) => {
     const { clientId, gameId, move, clientState } = req.body;
     
@@ -659,10 +697,11 @@ app.post('/api/sync-chess-move', (req, res) => {
     // Determine opponent
     const opponentId = clientId === game.playerWhite ? game.playerBlack : game.playerWhite;
     
-    // Enhanced response with full synchronization data
+    // Enhanced response with FEN
     const responseData = {
         success: true,
         gameState: game,
+        fen: game.fen, // Include FEN in response
         syncData: {
             moveApplied: true,
             newBoardHash: generateBoardHash(game.fen),
@@ -670,14 +709,15 @@ app.post('/api/sync-chess-move', (req, res) => {
         }
     };
     
-    // Notify opponent with full game state
+    // Notify opponent with FEN
     addEventToUser(opponentId, {
         event: 'chess_move_made',
         data: {
             gameId,
             move: move,
-            gameState: game, // Send full game state
-            syncRequired: false // Client should use this state directly
+            fen: game.fen, // Send FEN to opponent
+            gameState: game,
+            syncRequired: false
         }
     });
     
