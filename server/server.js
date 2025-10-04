@@ -591,6 +591,7 @@ app.get('/api/chess-game-state/:gameId/:clientId', (req, res) => {
 });
 
 // Validate and apply move with full state synchronization
+// Enhanced validate and apply move with full state synchronization
 app.post('/api/sync-chess-move', (req, res) => {
     const { clientId, gameId, move, clientState } = req.body;
     
@@ -682,7 +683,18 @@ app.post('/api/sync-chess-move', (req, res) => {
     
     res.json(responseData);
 });
+// Helper functions
+function generateBoardHash(fen) {
+    // Simple hash based on FEN position
+    return Buffer.from(fen).toString('base64').substring(0, 16);
+}
 
+function isValidMoveStructure(move) {
+    return move && 
+           Array.isArray(move.from) && move.from.length === 2 &&
+           Array.isArray(move.to) && move.to.length === 2 &&
+           typeof move.piece === 'string';
+}
 // Force synchronization endpoint
 app.post('/api/force-sync/:gameId/:clientId', (req, res) => {
     const { gameId, clientId } = req.params;
@@ -692,6 +704,7 @@ app.post('/api/force-sync/:gameId/:clientId', (req, res) => {
         return res.status(404).json({ error: 'Game not found' });
     }
     
+    // Verify user is in this game
     if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
         return res.status(403).json({ error: 'Not in this game' });
     }
