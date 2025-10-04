@@ -1608,46 +1608,6 @@ function broadcastUsersList(roomId) {
   broadcastToRoom(roomId, 'users_list', list);
 }
 
-// Process pending events periodically
-setInterval(() => {
-    const now = Date.now();
-    const EVENT_TIMEOUT = 30000; // 30 seconds
-    
-    pendingEvents.forEach((events, clientId) => {
-        const remainingEvents = [];
-        
-        events.forEach(event => {
-            // Skip if event is too old
-            if (now - event.timestamp > EVENT_TIMEOUT) {
-                console.log(`Event timeout for ${clientId}: ${event.event}`);
-                return;
-            }
-            
-            // Try to deliver
-            if (event.retryCount < event.maxRetries) {
-                event.retryCount++;
-                const delivered = addEventToUser(clientId, {
-                    event: event.event,
-                    data: event.data
-                });
-                
-                if (!delivered) {
-                    remainingEvents.push(event);
-                } else {
-                    console.log(`Pending event delivered to ${clientId}: ${event.event} (attempt ${event.retryCount})`);
-                }
-            } else {
-                console.log(`Max retries exceeded for ${clientId}: ${event.event}`);
-            }
-        });
-        
-        if (remainingEvents.length > 0) {
-            pendingEvents.set(clientId, remainingEvents);
-        } else {
-            pendingEvents.delete(clientId);
-        }
-    });
-}, 5000); // Check every 5 seconds
 // === Cleanup ===
 setInterval(() => {
   const now = Date.now();
