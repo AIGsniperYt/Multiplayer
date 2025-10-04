@@ -695,8 +695,8 @@ function isValidMoveStructure(move) {
            Array.isArray(move.to) && move.to.length === 2 &&
            typeof move.piece === 'string';
 }
-// Force synchronization endpoint
-app.post('/api/force-sync/:gameId/:clientId', (req, res) => {
+// Add force synchronization endpoint - FIXED VERSION
+app.get('/api/force-sync/:gameId/:clientId', (req, res) => {
     const { gameId, clientId } = req.params;
     const game = chessGames.get(gameId);
     
@@ -716,6 +716,26 @@ app.post('/api/force-sync/:gameId/:clientId', (req, res) => {
     });
 });
 
+// Also add a POST version for consistency
+app.post('/api/force-sync', (req, res) => {
+    const { gameId, clientId } = req.body;
+    const game = chessGames.get(gameId);
+    
+    if (!game) {
+        return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    // Verify user is in this game
+    if (game.playerWhite !== clientId && game.playerBlack !== clientId) {
+        return res.status(403).json({ error: 'Not in this game' });
+    }
+    
+    res.json({ 
+        success: true, 
+        gameState: game,
+        forceResync: true 
+    });
+});
 // Helper functions
 function generateBoardHash(fen) {
     // Simple hash based on FEN position
